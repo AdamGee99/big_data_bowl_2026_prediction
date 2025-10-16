@@ -164,10 +164,54 @@ plot_speed_acc(group_id = 432, lag_frames = 1, lead_frames = 0) #using no future
 
 
 
-#' now estimate orientation and direction of motion
+#' now estimate orientation and direction of motion!!
+#' 
+#' 
+#' I think direction is simple to calculate but orientation might be unknown
+#' what if we make a model to predict a players orientation then use that in subsequent final model?
 
 
 
+#not sure if we need to use leading frames here..
+
+plot_dir = function(group_id, lag_frames, lead_frames) {
+  plot_df = train %>%
+    filter(player_to_predict) %>%
+    group_by(game_id, play_id, nfl_id) %>%
+    filter(cur_group_id() == group_id) %>%
+    select(game_id, play_id, throw, s, a, dir, o, frame_id, player_name, x, y) %>%
+    ungroup() %>%
+    #calculations below
+    mutate(x_diff = lead(x, n = lead_frames) - lag(x, n = lag_frames), #the difference in x direction from previous frame in yards
+           y_diff = lead(y, n = lead_frames) - lag(y, n = lag_frames), #the difference in y direction from previous frame in yards
+           est_dir = (90 - (atan2(y = y_diff, x = x_diff)*180/pi)) %% 360) %>% 
+    pivot_longer(cols = c("dir", "est_dir"), names_to = "obs", values_to = "dir") %>%
+    mutate(obs = ifelse(obs == "dir", "Recorded", "Estimated"))
+  
+  #plot
+  ggplot(data = plot_df, mapping = aes(x = frame_id, y = dir, colour = obs, shape = obs)) +
+    geom_point(aes(size = obs)) +
+    scale_shape_manual(values = c("Estimated" = 19, "Recorded" = 8)) +
+    scale_size_manual(values = c("Estimated" = 3, "Recorded" = 5)) +
+    scale_y_continuous(limits = c(0, 360), breaks = c(0, 90, 180, 270, 360)) +
+    labs(x = "Frame ID", y = "Player Direction (deg)") +
+    theme_bw() +
+    theme(legend.title = element_blank(),
+          legend.position = "bottom")
+}
+
+plot_dir(group_id = 1, lag_frames = 1, lead_frames = 1) #using lead frame in calc
+plot_dir(group_id = 1, lag_frames = 1, lead_frames = 0) #using no future data
+
+plot_dir(group_id = 22, lag_frames = 1, lead_frames = 1) #using lead frame in calc
+plot_dir(group_id = 22, lag_frames = 1, lead_frames = 0) #using no future data
+
+plot_dir(group_id = 432, lag_frames = 1, lead_frames = 1) #using lead frame in calc
+plot_dir(group_id = 432, lag_frames = 1, lead_frames = 0) #using no future data
+
+
+#again we see that using lead frame is important here, 
+#do the same process as above? predict from past x,y ... update past x,y, predict from better past x,y ... repeat until convergence...
 
 
 
