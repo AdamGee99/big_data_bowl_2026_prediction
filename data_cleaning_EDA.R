@@ -71,9 +71,104 @@ train = train_X %>%
   mutate(frame_id = row_number()) %>%
   ungroup()
   
-  
-
 head(train)
+
+#' iteratively add speed, acceleration, direction, orientation based on observed x,y coordinates
+
+#' speed is in yards/s, acceleration is in yards/s^2, 
+#' direction is angle of player motion in degrees, orientation is orientation of player in degrees (these might be hard to calculate)
+
+
+#' make function that plots recorded vs estimated speed and acceleration from x,y
+
+#group_id is a singl player on a single play
+#lag_frames is the number of previous frames to calculate s, a
+#lead is the number of future frames to calculate s, a
+plot_speed_acc = function(group_id, lag_frames, lead_frames) {
+  window_size = lag_frames + lead_frames #num frames to calculate s, a over
+  
+  #single player on a single play
+  plot_df = train %>%
+    filter(player_to_predict) %>%
+    group_by(game_id, play_id, nfl_id) %>%
+    filter(cur_group_id() == group_id) %>%
+    select(game_id, play_id, throw, s, a, dir, o, frame_id, player_name, x, y) %>%
+    ungroup() %>%
+    #calculations below
+    mutate(x_diff = lead(x, n = lead_frames) - lag(x, n = lag_frames), #the difference in x direction from previous frame in yards
+           y_diff = lead(y, n = lead_frames) - lag(y, n = lag_frames), #the difference in y direction from previous frame in yards
+           distance_diff = sqrt(x_diff^2 + y_diff^2), #distance travelled from previous frame in yards
+           est_speed = distance_diff/((window_size)/10), #yards/second (1 frame is 0.1 seconds)
+           est_acc_vector = (lead(est_speed, n = lead_frames) - lag(est_speed, n = lag_frames))/((window_size)/10), #this has directions (negative accelerations)
+           est_acc_scalar = abs(est_acc_vector)) %>% #this is magnitude of acceleration (only positive) 
+    #pivot longer for plotting
+    pivot_longer(cols = c(s, a, est_speed, est_acc_vector, est_acc_scalar),
+                 names_to = c("obs", ".value"),
+                 names_pattern = "(est_)?(.*)") %>%
+    mutate(obs = ifelse(obs == "", "Recorded", "Estimated"),
+           s = ifelse(is.na(s), speed, s),
+           a = ifelse(is.na(a), acc_scalar, a),
+           a_vec = ifelse(is.na(a), acc_vector, a)) %>%
+    select(-c(speed, acc_scalar, acc_vector))
+  
+  #make speed plot
+  speed_plot = ggplot(data = plot_df, mapping = aes(x = frame_id, y = s, colour = obs)) +
+    geom_point() +
+    theme_bw() +
+    labs(x = "", y = "Speed (yds/sec)") +
+    theme(legend.title = element_blank(),
+          legend.position = "bottom")
+  
+  #make acceleration plot
+  acc_plot =  ggplot(data = plot_df, mapping = aes(x = frame_id, y = a, colour = obs)) +
+    geom_point() +
+    theme_bw() +
+    labs(x = "Frame ID", y = "Acceleration (yds/sec^2)") +
+    theme(legend.title = element_blank(),
+          legend.position = "bottom")
+  
+  #plot both
+  wrap_plots(list(speed_plot, acc_plot),
+             nrow = 2) +
+    plot_layout(guides = "collect") & theme(legend.position = "bottom")
+}
+
+plot_speed_acc(group_id = 1, lag_frames = 1, lead_frames = 1) #using lead frame in calc
+plot_speed_acc(group_id = 1, lag_frames = 1, lead_frames = 0) #using no future data
+
+plot_speed_acc(group_id = 22, lag_frames = 1, lead_frames = 1) #using lead frame in calc
+plot_speed_acc(group_id = 22, lag_frames = 1, lead_frames = 0) #using no future data
+
+plot_speed_acc(group_id = 432, lag_frames = 1, lead_frames = 1) #using lead frame in calc
+plot_speed_acc(group_id = 432, lag_frames = 1, lead_frames = 0) #using no future data
+
+#' using lead frame seems to give better estimates of speed and acceleration
+
+#' 1 frame of lag and 1 frame of lead seems to give best estimate compared to recorded, good balance of smooth over two frames but not too smooth
+
+
+#' I think what we need to do here is use a model that predicts frame_id + 1 x and y while only using previous frame's x,y, 
+#' then use that prediction to get better estimates of current speed/acceleration, 
+#' then use another model to get final predictions using the better curr speed/acc - maybe keep iterating until predictions converge
+
+
+#' can I use the fact the speed and acceleration right before throw was calculated using x,y's after throw to my advantage????
+
+#' I swear some recorded accelerations are wrong (cur_group_id == 1, cur_group_id == 2823), acceleration becomes way too high right before throw
+#' I think maybe drop recorded a and just use your estimated a from the player's positioning
+#' but experiment with this, see what gives better CV
+
+
+
+
+
+
+
+#' now estimate orientation and direction of motion
+
+
+
+
 
 
 
@@ -150,6 +245,8 @@ wrap_plots(lapply(1:num_plots, multi_player_movement),
            ncol = ceiling(sqrt(num_plots)),
            nrow = ceiling(sqrt(num_plots))) +
   plot_layout(guides = "collect")
+#blue is defense, green is offense
+
 
 
 #filtering for all players in play gives interesting results too 
@@ -160,8 +257,14 @@ wrap_plots(lapply(1:num_plots, multi_player_movement),
 
 
 #check if theres anything in test thats not in train... (any player for eg)
+  #there will be
+
+#add speed, direction, acceleration from predictions of model at every frame 
+  #recorded features s and a are magnitudes, not vectors
+  #experiment with including vectors (negative acceleration) in model, I think this makes a lot of sense - see which recorded or estimated gives better CV
+
 
 #certain players are dominant to one side, eg always like to cut right, use this info?
 
-#add speed, direction, acceleration from predictions of model at every frame 
+
 
