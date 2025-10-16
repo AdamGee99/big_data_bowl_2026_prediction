@@ -115,7 +115,7 @@ plot_speed_acc = function(group_id, lag_frames, lead_frames) {
   speed_plot = ggplot(data = plot_df, mapping = aes(x = frame_id, y = s, colour = obs)) +
     geom_point() +
     theme_bw() +
-    labs(x = "", y = "Speed (yds/sec)") +
+    labs(x = "", y = "Speed (yds/sec)", title = "Speed") +
     theme(legend.title = element_blank(),
           legend.position = "bottom")
   
@@ -123,7 +123,7 @@ plot_speed_acc = function(group_id, lag_frames, lead_frames) {
   acc_plot =  ggplot(data = plot_df, mapping = aes(x = frame_id, y = a, colour = obs)) +
     geom_point() +
     theme_bw() +
-    labs(x = "Frame ID", y = "Acceleration (yds/sec^2)") +
+    labs(x = "Frame ID", y = "Acceleration (yds/sec^2)", title = "Acceleration") +
     theme(legend.title = element_blank(),
           legend.position = "bottom")
   
@@ -192,7 +192,7 @@ plot_dir = function(group_id, lag_frames, lead_frames) {
   ggplot(data = plot_df, mapping = aes(x = frame_id, y = dir, colour = obs, shape = obs)) +
     geom_point(aes(size = obs)) +
     scale_shape_manual(values = c("Estimated" = 19, "Recorded" = 8)) +
-    scale_size_manual(values = c("Estimated" = 3, "Recorded" = 5)) +
+    scale_size_manual(values = c("Estimated" = 3, "Recorded" = 6)) +
     scale_y_continuous(limits = c(0, 360), breaks = c(0, 90, 180, 270, 360)) +
     labs(x = "Frame ID", y = "Player Direction (deg)") +
     theme_bw() +
@@ -213,6 +213,9 @@ plot_dir(group_id = 432, lag_frames = 1, lead_frames = 0) #using no future data
 #again we see that using lead frame is important here, 
 #do the same process as above? predict from past x,y ... update past x,y, predict from better past x,y ... repeat until convergence...
 
+
+
+#direction should be very important, like especially at speed, the player is going to continue going in the same direction they are going
 
 
 
@@ -246,39 +249,44 @@ plot_player_movement = function(group_id) {
 plot_player_movement(group_id = 1)
 plot_player_movement(group_id = 2)
 
-#plotting a grid 
-plots_1 = lapply(1:9, plot_player_movement)
-plots_2 = lapply(10:18, plot_player_movement)
-plots_3 = lapply(19:27, plot_player_movement)
-
-grid.arrange(grobs = plots_1, ncol = 3, nrow = 3)
-grid.arrange(grobs = plots_2, ncol = 3, nrow = 3)
-grid.arrange(grobs = plots_3, ncol = 3, nrow = 3)
-
-num_plots = 16
-grid.arrange(grobs = lapply(1:num_plots, plot_player_movement),
-             ncol = ceiling(sqrt(num_plots)),
-             nrow = ceiling(sqrt(num_plots)))
+# #plotting a grid 
+# plots_1 = lapply(1:9, plot_player_movement)
+# plots_2 = lapply(10:18, plot_player_movement)
+# plots_3 = lapply(19:27, plot_player_movement)
+# 
+# grid.arrange(grobs = plots_1, ncol = 3, nrow = 3)
+# grid.arrange(grobs = plots_2, ncol = 3, nrow = 3)
+# grid.arrange(grobs = plots_3, ncol = 3, nrow = 3)
+# 
+# num_plots = 16
+# grid.arrange(grobs = lapply(1:num_plots, plot_player_movement),
+#              ncol = ceiling(sqrt(num_plots)),
+#              nrow = ceiling(sqrt(num_plots)))
 
 
 #function now plotting multiple players on same play
 multi_player_movement = function(group_id) {
-  train %>% 
+  plot_df = train %>% 
     filter(player_to_predict) %>% #filter for only players that were targeted
     group_by(game_id, play_id) %>% 
     filter(cur_group_id() == group_id) %>% #filter for a single play
-    select(frame_id, x, y, ball_land_x, ball_land_y, throw, player_side, player_name) %>%
+    select(game_id, play_id, frame_id, x, y, ball_land_x, ball_land_y, throw, player_side, player_name) %>%
     mutate(colour = ifelse(
       player_side == "Offense", 
       col_numeric(c("black", "green"), domain = range(frame_id))(frame_id),
       col_numeric(c("black", "blue"), domain = range(frame_id))(frame_id)
     )) %>% #add colours depending on offense or defense
-    ungroup() %>% 
-    ggplot(mapping = aes(x = x, y = y, colour = colour, shape = throw)) + #plot the movement
+    ungroup() 
+  game_id = plot_df$game_id %>% unique()
+  play_id = plot_df$play_id %>% unique()
+  
+  #plot 
+  ggplot(data = plot_df, mapping = aes(x = x, y = y, colour = colour, shape = throw)) + #plot the movement
     geom_point(size = 3) +
     scale_colour_identity() + 
     scale_shape_manual(values = c(19, 1)) + #hollow is pre throw, filled is post throw
     geom_point(mapping = aes(x = ball_land_x, y = ball_land_y), colour = "red", size = 4) +
+    labs(title = paste0("Game: ", game_id, ", Play: ", play_id)) +
     theme_bw() +
     guides(shape = "none")
 }
@@ -294,6 +302,25 @@ wrap_plots(lapply(1:num_plots, multi_player_movement),
 
 
 #filtering for all players in play gives interesting results too 
+
+
+
+
+
+
+
+
+
+### see the relationships between response and features now
+
+#find out whats important
+
+
+
+
+
+
+
 
 
 ### TO DO ###
