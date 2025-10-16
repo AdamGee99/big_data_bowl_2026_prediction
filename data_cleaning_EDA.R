@@ -1,4 +1,4 @@
-### Libraries ###
+############################################### Libraries ############################################### 
 
 library(tidyverse)
 library(here)
@@ -8,7 +8,7 @@ library(patchwork)
 library(scales)
 
 
-### Import Data ###
+############################################### Import Data ############################################### 
 
 train_X_files = list.files(path = here("data", "train"), pattern = "input")
 train_Y_files = list.files(path = here("data", "train"), pattern = "output")
@@ -21,6 +21,8 @@ head(train_X)
 
 #these are the post-throw player positions
 head(train_Y)
+
+############################################### Cleaning ############################################### 
 
 
 #clean the types
@@ -90,7 +92,7 @@ plot_speed_acc = function(group_id, lag_frames, lead_frames) {
   #single player on a single play
   plot_df = train %>%
     filter(player_to_predict) %>%
-    group_by(game_id, play_id, nfl_id) %>%
+    group_by(game_id, nfl_id, play_id) %>%
     filter(cur_group_id() == group_id) %>%
     select(game_id, play_id, throw, s, a, dir, o, frame_id, player_name, x, y) %>%
     ungroup() %>%
@@ -177,7 +179,7 @@ plot_speed_acc(group_id = 432, lag_frames = 1, lead_frames = 0) #using no future
 plot_dir = function(group_id, lag_frames, lead_frames) {
   plot_df = train %>%
     filter(player_to_predict) %>%
-    group_by(game_id, play_id, nfl_id) %>%
+    group_by(game_id, nfl_id, play_id) %>%
     filter(cur_group_id() == group_id) %>%
     select(game_id, play_id, throw, s, a, dir, o, frame_id, player_name, x, y) %>%
     ungroup() %>%
@@ -219,8 +221,18 @@ plot_dir(group_id = 432, lag_frames = 1, lead_frames = 0) #using no future data
 
 
 
+## orientation should be important but it's impossible to estimate purely from x,y positions. They use sensors in players shoulder pads...
 
-### EDA ###
+#I guess skip using it for now, but come back to it later
+
+
+
+
+
+
+
+
+############################################### EDA ############################################### 
 
 
 #first lets visualize the player's movements
@@ -231,17 +243,23 @@ nfl_ids = train$nfl_id %>% unique() #1384 player ids
 
 #function only plots players that were targeted
 plot_player_movement = function(group_id) {
-  train %>% 
+  plot_df = train %>% 
     filter(player_to_predict) %>% #filter for only players that were targeted
     group_by(game_id, nfl_id, play_id) %>% 
     filter(cur_group_id() == group_id) %>% #filter for a single player on a single play
     select(frame_id, x, y, ball_land_x, ball_land_y, throw, player_side) %>%
-    ungroup() %>% 
-    ggplot(mapping = aes(x = x, y = y, colour = frame_id, shape = throw)) + #plot the movement
+    ungroup() 
+  game_id = plot_df$game_id %>% unique()
+  play_id = plot_df$play_id %>% unique()
+  nfl_id = plot_df$nfl_id %>% unique()
+  
+  #plot
+  ggplot(data = plot_df, mapping = aes(x = x, y = y, colour = frame_id, shape = throw)) + #plot the movement
     geom_point(size = 3) +
     scale_colour_gradient(low = "black", high = "green") +
     scale_shape_manual(values = c(19, 1)) + #hollow is pre throw, filled is post throw
     geom_point(mapping = aes(x = ball_land_x, y = ball_land_y), colour = "red", size = 4) +
+    labs(title = paste0("Game: ", game_id, ", Play: ", play_id, ", Player ID: ", nfl_id)) +
     theme_bw() +
     guides(colour = "none", shape = "none")
 }
@@ -299,13 +317,7 @@ wrap_plots(lapply(1:num_plots, multi_player_movement),
   plot_layout(guides = "collect")
 #blue is defense, green is offense
 
-
-
 #filtering for all players in play gives interesting results too 
-
-
-
-
 
 
 
@@ -315,27 +327,66 @@ wrap_plots(lapply(1:num_plots, multi_player_movement),
 
 #find out whats important
 
+#plot player movement with direction
+group_id = 1
+wrap_plots(list(plot_player_movement(group_id = group_id),
+                plot_dir(group_id = group_id, lag_frames = 1, lead_frames = 1)),
+           nrow = 2) +
+  plot_layout(guides = "collect") & theme(legend.position = "bottom")
+#clearly very important, tells us where the player is heading
+#probably the most important feature
+
+
+#plot player movement with speed, acceleration
+wrap_plots(list(plot_player_movement(group_id = group_id),
+                plot_speed_acc(group_id = group_id, lag_frames = 1, lead_frames = 1)),
+           nrow = 2) +
+  plot_layout(guides = "collect") & theme(legend.position = "bottom")
+#also important, tells us how far away the position at the next frame will be
+
+
+#' I think the challenge is getting the correct direction, speed, acc of player in the current frame
+#' Once you have that, predicting the next frame seems very simple (like you don't even need a model, you can predict the value exactly using physics formula...)
+#' Use all the extra features (where ball is landing, player info, defender info, ...) to predict direction/speed/acc
 
 
 
 
 
 
+############################################### TO DO ############################################### 
+
+#' Steps
+#' 1. get model to predict player's next frame position based on direction, speed, acc of current frame
+#'      -this can be an exact formula, no estimation...
+#'      -see how well this matches up with true observed values
+#'      -figure out what features are needed here (is direction, speed, acceleration all or is more neeeded? orientation?)
+#' 
+#' 2. start developing models for the each features needed above (direction, speed, acceleration)
 
 
-### TO DO ###
 
 
 
-#check if theres anything in test thats not in train... (any player for eg)
-  #there will be
+############################################### Misc Ideas I'll get to eventually ############################################### 
 
-#add speed, direction, acceleration from predictions of model at every frame 
-  #recorded features s and a are magnitudes, not vectors
-  #experiment with including vectors (negative acceleration) in model, I think this makes a lot of sense - see which recorded or estimated gives better CV
+#' 1. check if theres anything in test thats not in train... (any player for eg)
+#'      there will be
 
+#' 2. add speed, direction, acceleration from predictions of model at every frame 
+#'      recorded features s and a are magnitudes, not vectors
+#'      experiment with including vectors (negative acceleration) in model, I think this makes a lot of sense - see which recorded or estimated gives better CV
 
-#certain players are dominant to one side, eg always like to cut right, use this info?
+#' 3. figure out how to incorporate orientation, cannot estimate from x,y - they use sensors in player's shoulder pads
+#'      maybe estimate it? but how helpful will this even be?
+
+#' 4. make a model to predict direction - then use that
+#'      train model to predict direction, 
+#'      if a player is turning for eg, the direction isn't just a straight line between current and previous frame, its going to keep curving
+#'      this depends on speed, acc, and where the ball is landing
+#'      two solutions to this, the gibbs way as before, or fit a model to predict direction
+
+#' 5. certain players are dominant to one side, eg always like to cut right, use this info?
 
 
 
