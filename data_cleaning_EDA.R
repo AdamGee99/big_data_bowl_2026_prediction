@@ -22,6 +22,10 @@ head(train_X)
 #these are the post-throw player positions
 head(train_Y)
 
+#source helper functions
+source(here("helper.R"))
+
+
 ############################################### Cleaning ############################################### 
 
 
@@ -74,16 +78,14 @@ train = train_X %>%
   ungroup()
   
 head(train)
-
-#' iteratively add speed, acceleration, direction, orientation based on observed x,y coordinates
-
 #' speed is in yards/s, acceleration is in yards/s^2, 
 #' direction is angle of player motion in degrees, orientation is orientation of player in degrees (these might be hard to calculate)
 
+#save cleaned data
+#write.csv(train, file = here("data", "train_clean.csv"), row.names = FALSE)
 
-#' make function that plots recorded vs estimated speed and acceleration from x,y
 
-#group_id is a singl player on a single play
+#group_id is a single player on a single play
 #lag_frames is the number of previous frames to calculate s, a
 #lead is the number of future frames to calculate s, a
 plot_speed_acc = function(group_id, lag_frames, lead_frames) {
@@ -109,8 +111,8 @@ plot_speed_acc = function(group_id, lag_frames, lead_frames) {
                  names_pattern = "(est_)?(.*)") %>%
     mutate(obs = ifelse(obs == "", "Recorded", "Estimated"),
            s = ifelse(is.na(s), speed, s),
-           a = ifelse(is.na(a), acc_scalar, a),
-           a_vec = ifelse(is.na(a), acc_vector, a)) %>%
+           a_scalar = ifelse(is.na(a), acc_scalar, a),
+           a_vector = ifelse(is.na(a), acc_vector, a)) %>%
     select(-c(speed, acc_scalar, acc_vector))
   
   #make speed plot
@@ -122,7 +124,7 @@ plot_speed_acc = function(group_id, lag_frames, lead_frames) {
           legend.position = "bottom")
   
   #make acceleration plot
-  acc_plot =  ggplot(data = plot_df, mapping = aes(x = frame_id, y = a, colour = obs)) +
+  acc_plot =  ggplot(data = plot_df, mapping = aes(x = frame_id, y = a_scalar, colour = obs)) +
     geom_point() +
     theme_bw() +
     labs(x = "Frame ID", y = "Acceleration (yds/sec^2)", title = "Acceleration") +
@@ -163,9 +165,6 @@ plot_speed_acc(group_id = 432, lag_frames = 1, lead_frames = 0) #using no future
 
 
 
-
-
-
 #' now estimate orientation and direction of motion!!
 #' 
 #' 
@@ -186,7 +185,7 @@ plot_dir = function(group_id, lag_frames, lead_frames) {
     #calculations below
     mutate(x_diff = lead(x, n = lead_frames) - lag(x, n = lag_frames), #the difference in x direction from previous frame in yards
            y_diff = lead(y, n = lead_frames) - lag(y, n = lag_frames), #the difference in y direction from previous frame in yards
-           est_dir = (90 - (atan2(y = y_diff, x = x_diff)*180/pi)) %% 360) %>% 
+           est_dir = get_dir(x_diff = x_diff, y_diff = y_diff)) %>%
     pivot_longer(cols = c("dir", "est_dir"), names_to = "obs", values_to = "dir") %>%
     mutate(obs = ifelse(obs == "dir", "Recorded", "Estimated"))
   
@@ -328,7 +327,7 @@ wrap_plots(lapply(1:num_plots, multi_player_movement),
 #find out whats important
 
 #plot player movement with direction
-group_id = 1
+group_id = 53
 wrap_plots(list(plot_player_movement(group_id = group_id),
                 plot_dir(group_id = group_id, lag_frames = 1, lead_frames = 1)),
            nrow = 2) +
@@ -357,10 +356,14 @@ wrap_plots(list(plot_player_movement(group_id = group_id),
 ############################################### TO DO ############################################### 
 
 #' Steps
-#' 1. get model to predict player's next frame position based on direction, speed, acc of current frame
-#'      -this can be an exact formula, no estimation...
+#' 1. Generate end model
+#'      -by end model, I mean final in the line of models to generate the position predictions
+#'      -this model simply predicts the player's position on the next frame using direction, speed, acceleration of current frame
+#'      -this is an exact formula, no estimation...(simple kinematics formula)
+#'      -just use the true observed direction, speed, acceleration values for now, don't worry about estimating them
 #'      -see how well this matches up with true observed values
 #'      -figure out what features are needed here (is direction, speed, acceleration all or is more neeeded? orientation?)
+#' 
 #' 
 #' 2. start developing models for the each features needed above (direction, speed, acceleration)
 
