@@ -15,6 +15,13 @@ get_dir = function(x_diff, y_diff) {
 #be careful when there's no change in position (x_diff = y_diff = 0) - returns 90
 
 
+#' function to calculate the distance traveled between two frames
+#' inputs: distance travelled in x, y coordinates
+get_dist = function(x_diff, y_diff) {
+  sqrt(x_diff^2 + y_diff^2)
+}
+
+
 #' function to get rmse (evaluation metriic) for predictions
 #' inputs: true x,y values, predicted x,y values
 #' true and predicted vectors must be same length
