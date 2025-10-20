@@ -6,6 +6,7 @@ library(data.table)
 library(gridExtra)
 library(patchwork)
 library(scales)
+library(scattermore)
 
 
 ############################################### Import Data ############################################### 
@@ -229,8 +230,6 @@ plot_dir(group_id = 432, lag_frames = 1, lead_frames = 0) #using no future data
 
 
 
-
-
 ############################################### EDA ############################################### 
 
 
@@ -345,8 +344,119 @@ wrap_plots(list(plot_player_movement(group_id = group_id),
 
 
 #' I think the challenge is getting the correct direction, speed, acc of player in the current frame
+#' at every frame, we should be predicting not just the next x,y but also need to update dir, s, a 
+#' these will also have to be models, but they all depend on eachtother so it's kind of weird...
 #' Once you have that, predicting the next frame seems very simple (like you don't even need a model, you can predict the value exactly using physics formula...)
 #' Use all the extra features (where ball is landing, player info, defender info, ...) to predict direction/speed/acc
+
+
+
+
+
+############################################### Deriving New Features ############################################### 
+
+
+#add predictions to train
+train_derived = train %>%
+  filter(player_to_predict) %>%
+  group_by(game_id, nfl_id, play_id) %>%
+  #filter(cur_group_id() == group_id) %>% #use this to filter for only 1 player in 1 play in 1 game
+  #select(game_id, play_id, throw, s, a, dir, o, frame_id, player_name, x, y) %>%
+  
+  #first calculate s, a, dir from true values of x,y values
+  mutate(x_diff = lead(x, n = lead_frames) - lag(x, n = lag_frames, default = NA), #the difference in x direction from previous frame in yards
+         y_diff = lead(y, n = lead_frames) - lag(y, n = lag_frames, default = NA), #the difference in y direction from previous frame in yards
+         dist_diff = sqrt(x_diff^2 + y_diff^2), #distance travelled from previous frame in yards
+         est_speed = dist_diff/((window_size)/10), #yards/second (1 frame is 0.1 seconds)
+         est_acc_vector = (lead(est_speed, n = lead_frames) - lag(est_speed, n = lag_frames))/((window_size)/10), #this has directions (negative accelerations)
+         est_acc_scalar = abs(est_acc_vector),
+         est_dir = get_dir(x_diff = x_diff, y_diff = y_diff)) %>% 
+  #pther derived covariates
+  mutate(dir_diff_pos = (est_dir - lag(est_dir)) %% 360, #change in direction from previous frame - positive direction
+         dir_diff_neg = (-(est_dir - lag(est_dir))) %% 360) %>% #change in direction from previous frame - negative direction
+  ungroup() %>%
+  rowwise() %>%
+  mutate(dir_diff = min(dir_diff_pos, dir_diff_neg)) %>% #change in direction is minimum of either clockwise or counter-clockwise
+  select(-c(dir_diff_pos, dir_diff_neg)) %>%
+  ungroup()
+
+
+    
+
+
+
+
+############################################### Continue EDA ############################################### 
+
+
+
+#' EDA on dir, speed, acc
+#' try to visualize and understand the relationships between these and other predictors
+
+
+
+#' speed vs direction change
+train_derived %>%
+  ggplot(mapping = aes(x = dir_diff, y = est_speed)) +
+  geom_scattermore() +
+  theme_bw() 
+#scale_x_continuous(limits = c(0, 50)) +
+#scale_y_continuous(limits = c(0, 15))
+
+#' when players are changing direction, they are going slower
+#' direction is minimum of positve or negative direction (so 180 is maximum possible dir_diff)
+#' 
+#' some speed values here are clearly outliers potentially impossible - investigate these
+
+
+
+#' acceleration vs direction change
+train_derived %>%
+  ggplot(mapping = aes(x = dir_diff, y = est_acc_vector)) +
+  geom_scattermore() +
+  scale_y_continuous(limits = c(-25, 25)) +
+  theme_bw() 
+#' same as above, when direction changing, acceleration is going to 0
+#' this is kind of counter-intuitive
+#' also some outliers here, look into those, I'm guessing its the values right at the start
+
+
+
+#' speed vs acceleration 
+#' 
+#' this should be a simple relationship
+#' just use all the observations for a single player, but across all games and plays
+
+#acc vector
+train_derived %>% 
+  #group_by(nfl_id) %>%
+  #filter(cur_group_id() == 3) %>%
+  ggplot(mapping = aes(x = est_speed, y = est_acc_vector)) +
+  geom_scattermore() +
+  scale_x_continuous(limits = c(0, 15)) +
+  scale_y_continuous(limits = c(-20, 20)) +
+  #scale_colour_gradient(low = "black", high = "green") +
+  theme_bw()
+
+
+
+
+
+group_id = 1
+test = train_derived %>% 
+  group_by(game_id, nfl_id, play_id) %>% 
+  filter(cur_group_id() == group_id) %>%
+  ungroup() %>%
+
+#' direction, ball landing point
+test %>%
+  ggplot(mapping = aes(x = x, y = dir, colour = frame_id)) +
+  geom_point() +
+  scale_colour_gradient(low = "black", high = "green") +
+  theme_bw()
+
+
+
 
 
 
