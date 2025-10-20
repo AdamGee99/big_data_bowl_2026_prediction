@@ -123,12 +123,6 @@ plot_df %>%
   scale_y_continuous(n.breaks = 20) +
   theme_bw()
   
-# 
-# 
-#   geom_point(colour = "black") +
-#   geom_point(mapping = aes(x = pred_x_sa, y = pred_y_sa), colour = "blue") +
-#   geom_point(mapping = aes(x = pred_x_s, y = pred_y_s), colour = "red") + 
-  
 
 #some minor differences between using s only vs s + a
 
@@ -178,6 +172,84 @@ train_pred %>%
             rmse_sa = get_rmse(true_x = x, true_y = y,
                                pred_x = pred_x_sa, pred_y = pred_y_sa))
 
+#' including speed + acceleration better
+
+
+
+#' this confirms that getting good predictions is dependent on getting good speed, acceleration, and direction at each frame
+#' but getting good speed, acceleration, adn direction depends on good location
+#' its circular
+#' I think the way to go is to iterate by conditioning on eachother until convergance, like markov chain, gibbs
+
+
+
+
+
+#' now lets try using previous prediction as the previous position, rather than true position values
+#' pretty sure this will just result in a straight line but lets try it
+#' 
+
+test = train %>%
+  group_by(game_id, nfl_id, play_id) %>%
+  filter(cur_group_id() == group_id) %>%
+  ungroup()
+
+test = test[-c(1:10),]
+
+#preds = data.frame("x" = NULL, "y" = NULL, "dir" = NULL, "s" = NULL, "a" = NULL)
+preds = matrix(ncol = 5, nrow = nrow(test),
+               dimnames = list(seq(1:nrow(test)),
+                               c("x", "y", "dir", "s", "a")))
+for (i in 1:nrow(test)) {
+  curr_frame = test[i,] #the current frame and all the info
+  
+  if (i %in% c(1,2)) {
+    preds_x[i] = curr_frame$x
+    preds_y[i] = curr_frame$y
+    
+    #initialize first two rows by true observations
+    preds[i,] = c(curr_frame$x, curr_frame$y, 
+                  curr_frame$dir, curr_frame$s, curr_frame$a)
+  }
+  else {
+    prev_x = preds[i-2, 1]
+    prev_y = preds[i-2, 2]
+    
+    curr_x = preds[i-1, 1]
+    curr_y = preds[i-1, 2]
+    
+    x_diff = curr_x - prev_x
+    y_diff = curr_y - prev_y
+    dist_diff = get_dist(x_diff, y_diff)
+
+    est_dir = get_dir(x_diff, y_diff) #direction change between two frames
+    est_speed = dist_diff/0.1 #just using 1 frame for now
+    est_acc = (preds[i-1, 4] - preds[i-2, 4])/0.1 #change in speed over 1 frame
+    
+    #update position
+    pred_dist_diff = est_speed*0.1 + est_acc*0.5*0.1^2 #predicted distance travelled between frames - using speed + acceleration
+    pred_x = prev_x + cos(((90 - est_dir) %% 360)*pi/180)*pred_dist_diff
+    pred_y = prev_y + sin(((90 - est_dir) %% 360)*pi/180)*pred_dist_diff
+    
+    #store
+    preds[i,] = c(pred_x, pred_y, est_dir, est_speed, est_acc)
+  }
+} 
+#preds = preds %>% as.data.frame()
+#colnames(preds) = c("x", "y", "dir", "s", "a")
+preds
+
+
+#' can eventually turn this into a function where you supply the pre throw info and it predicts all the post throw frames
+
+
+
+#' next step is to create a DAG
+
+
+
+
+
 
 
 
@@ -187,10 +259,6 @@ train_pred %>%
 
 #' 1. check if theres anything in test thats not in train... (any player for eg)
 #'      there will be
-
-#' 2. add speed, direction, acceleration from predictions of model at every frame 
-#'      recorded features s and a are magnitudes, not vectors
-#'      experiment with including vectors (negative acceleration) in model, I think this makes a lot of sense - see which recorded or estimated gives better CV
 
 #' 3. figure out how to incorporate orientation, cannot estimate from x,y - they use sensors in player's shoulder pads
 #'      maybe estimate it? but how helpful will this even be?
@@ -202,6 +270,9 @@ train_pred %>%
 #'      two solutions to this, the gibbs way as before, or fit a model to predict direction
 
 #' 5. certain players are dominant to one side, eg always like to cut right, use this info?
+
+
+#' 6. another covariate could be the second derivative of the player's curve over the past 5 frames for eg, the sharper the curve, the slower the speed/acc...
 
 
 
