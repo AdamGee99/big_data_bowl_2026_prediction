@@ -352,17 +352,19 @@ wrap_plots(list(plot_player_movement(group_id = group_id),
 
 
 
-
 ############################################### Deriving New Features ############################################### 
 
+#' new features to add:
+#'  -change in direction between current and previous frame
+#'  -difference in current frames direction and direction of ball land (x,y)
+#'  -distance where the player currently is to where the ball will land
+#'  -proportion of play complete, standardizes frame ID to be all on the same scale
 
-#add predictions to train
-train_derived = train %>%
+#first calculate estimated s, a, dir at each frame
+train_calcs = train %>%
   filter(player_to_predict) %>%
   group_by(game_id, nfl_id, play_id) %>%
-  #filter(cur_group_id() == group_id) %>% #use this to filter for only 1 player in 1 play in 1 game
-  #select(game_id, play_id, throw, s, a, dir, o, frame_id, player_name, x, y) %>%
-  
+  mutate(game_player_play_id = cur_group_id()) %>% #add group_ids
   #first calculate s, a, dir from true values of x,y values
   mutate(x_diff = lead(x, n = lead_frames) - lag(x, n = lag_frames, default = NA), #the difference in x direction from previous frame in yards
          y_diff = lead(y, n = lead_frames) - lag(y, n = lag_frames, default = NA), #the difference in y direction from previous frame in yards
@@ -370,18 +372,43 @@ train_derived = train %>%
          est_speed = dist_diff/((window_size)/10), #yards/second (1 frame is 0.1 seconds)
          est_acc_vector = (lead(est_speed, n = lead_frames) - lag(est_speed, n = lag_frames))/((window_size)/10), #this has directions (negative accelerations)
          est_acc_scalar = abs(est_acc_vector),
-         est_dir = get_dir(x_diff = x_diff, y_diff = y_diff)) %>% 
-  #pther derived covariates
+         est_dir = get_dir(x_diff = x_diff, y_diff = y_diff)) %>%
+  ungroup()
+  
+
+#now add the derived variables
+train_derived = train_calcs %>% 
+  group_by(game_player_play_id) %>%
+  #other derived covariates
   mutate(dir_diff_pos = (est_dir - lag(est_dir)) %% 360, #change in direction from previous frame - positive direction
-         dir_diff_neg = (-(est_dir - lag(est_dir))) %% 360) %>% #change in direction from previous frame - negative direction
+         dir_diff_neg = (-(est_dir - lag(est_dir))) %% 360, #change in direction from previous frame - negative direction
+         #the direction needed from current point to go to the ball landing point
+         curr_ball_land_dir = get_dir(x_diff = ball_land_x - x, y_diff = ball_land_y - y),
+         dist_ball_land = get_dist(x_diff = ball_land_x - x, y_diff = ball_land_y - y), #the distance where the player currently is to where the ball will land
+         prop_play_complete = frame_id/max(frame_id), #proportion of play complete - standardizes frame ID
+         prop_play_complete_bin = case_when( #bin it into quarters mainly for plotting
+           prop_play_complete <= 0.25 ~ "0-0.25",
+           prop_play_complete > 0.25 & prop_play_complete <= 0.5 ~ "0.25-0.5",
+           prop_play_complete > 0.5 & prop_play_complete <= 0.75 ~ "0.5-0.75",
+           prop_play_complete > 0.75 ~ "0.75-1",
+         )) %>%
   ungroup() %>%
   rowwise() %>%
-  mutate(dir_diff = min(dir_diff_pos, dir_diff_neg)) %>% #change in direction is minimum of either clockwise or counter-clockwise
+  mutate(dir_diff = min(dir_diff_pos, dir_diff_neg), #change in directions between current frame and previous frame
+         #the difference in current direction the player is heading and the direction they need to go to to reach ball land (x,y)
+         ball_land_dir_diff = min((est_dir - curr_ball_land_dir) %% 360,
+                                  (-(est_dir - curr_ball_land_dir)) %% 360)) %>%
   select(-c(dir_diff_pos, dir_diff_neg)) %>%
   ungroup()
 
+#' in the above step, any direction diff is always the minimum of the positive or the negative direction
+#' so the max difference in direction is 180 deg, not 360
 
-    
+
+
+#save cleaned data
+#write.csv(train_derived, file = here("data", "train_clean.csv"), row.names = FALSE)
+
 
 
 
@@ -393,6 +420,45 @@ train_derived = train %>%
 #' EDA on dir, speed, acc
 #' try to visualize and understand the relationships between these and other predictors
 
+
+#' speed vs pre-post throw
+train_derived %>% 
+  ggplot(mapping = aes(x = factor(throw), y = est_speed)) +
+  geom_boxplot() + theme_bw()
+#speed much higher after throw
+
+#' acc vs pre-post throw
+train_derived %>% 
+  ggplot(mapping = aes(x = factor(throw), y = est_acc_scalar)) +
+  geom_boxplot() + theme_bw() + ylim(c(0, 15))
+#acceleration more mixed, slightly higher pre throw actually
+#makes sense, the player is usually running full speed after ball is in the air
+
+#' ball_land_dir_diff vs pre-post throw
+train_derived %>%
+  ggplot(mapping = aes(x = factor(throw), y = ball_land_dir_diff)) +
+  geom_boxplot() + theme_bw()
+#difference in direction to ball land smaller post throw, makes sense
+
+
+#' now try over proportion of play complete
+#' speed
+train_derived %>% 
+  ggplot(mapping = aes(x = factor(prop_play_complete_bin), y = est_speed)) +
+  geom_boxplot() + theme_bw()
+#speed increases throughout play
+
+#' acc vs pre-post throw
+train_derived %>% 
+  ggplot(mapping = aes(x = factor(prop_play_complete_bin), y = est_acc_scalar)) +
+  geom_boxplot() + theme_bw() + ylim(c(0, 15))
+#mixed again
+
+#' ball_land_dir_diff vs pre-post throw
+train_derived %>%
+  ggplot(mapping = aes(x = factor(prop_play_complete_bin), y = ball_land_dir_diff)) +
+  geom_boxplot() + theme_bw()
+#difference in direction to ball land getting smaller
 
 
 #' speed vs direction change
@@ -427,37 +493,128 @@ train_derived %>%
 #' this should be a simple relationship
 #' just use all the observations for a single player, but across all games and plays
 
-#acc vector
+#acc scalar
 train_derived %>% 
   #group_by(nfl_id) %>%
   #filter(cur_group_id() == 3) %>%
-  ggplot(mapping = aes(x = est_speed, y = est_acc_vector)) +
-  geom_scattermore() +
-  scale_x_continuous(limits = c(0, 15)) +
-  scale_y_continuous(limits = c(-20, 20)) +
+  ggplot(mapping = aes(x = cut(est_speed, breaks = c(0, 2, 4, 6, 8, 10, 30)), y = est_acc_scalar)) +
+  #geom_scattermore() +
+  geom_boxplot() +
+  #scale_x_continuous(limits = c(0, 15)) +
+  scale_y_continuous(limits = c(0, 10)) +
+  labs(x = "Speed", y = "Acceleration") +
   #scale_colour_gradient(low = "black", high = "green") +
   theme_bw()
+#there's some relationship here
+
+
+#' ball_land_dir_diff vs frame_id
+plot_ball_land_dir_diff = function(group_id) {
+  plot = train_derived %>% 
+    group_by(game_id, nfl_id, play_id) %>% 
+    filter(cur_group_id() == group_id) %>%
+    ungroup() %>%
+    ggplot(mapping = aes(x = frame_id, y = ball_land_dir_diff, colour = throw)) +
+    geom_point() +
+    scale_y_continuous(limits = c(0, 180), breaks = c(0, 90, 180)) +
+    labs(x = "Frame ID", y = "Difference in current direction and ball land direction (deg)") +
+    theme_bw()  
+  
+  #plot ball_land_dir_diff and player movement to help visualize
+  wrap_plots(list(plot_player_movement(group_id), plot), nrow = 2)
+}
+plot_ball_land_dir_diff(2)
+
+
+#' generally, as play progresses the player's direction diff to ball land x,y gets closer to 0
+#' as the player gets super close to the ball though things get weird since small changes in distances give big changes in angles, but doesn't matter much
+#' therefore this feature is more important at farther distances, less important at closer distances
+#' interaction with current distance to ball!!
+
+#' at the end of the frames, when the ball is close to landing or being caught, the only thing that seems to matter is the kinematics part of the equation
+#' ie, once player has narrowed in on where ball is going, only thing that matters is how fast they get there
+
+#' also seems to be much more important for the offense, offense always wants to go to the ball, some defenders can drift around a bit
+
+
+
+#' rather than making the goal to get to the exact point the ball will land, make the goal to get in some radius around this point
+#' in reality, players just need to get close enough to catch it, not necessarily on the exact landing point
+#' this might help clear up the issue of ball_land_dir_diff raising when player gets super close to landing point
+#' I guess this is only for the offensive team
+
+#' first do some EDA to see how close player needs to get to catch the ball, or how close they usually get
+#' this could also be a tuning parameter? can adjust how big the radius should be to the landing point?
+
+#' come back to this later
 
 
 
 
 
-group_id = 1
-test = train_derived %>% 
-  group_by(game_id, nfl_id, play_id) %>% 
-  filter(cur_group_id() == group_id) %>%
-  ungroup() %>%
+#' ball_land_dir_diff vs speed
+train_derived %>% 
+  # group_by(game_id, nfl_id, play_id) %>% 
+  # filter(cur_group_id() == 1) %>%
+  # ungroup() %>%
+  ggplot(mapping = aes(x = cut(ball_land_dir_diff, breaks = c(0, 45, 90, 135, 180)), 
+                       y = est_speed)) +
+  geom_boxplot() +
+  labs(x = "Ball Land Direction Difference", y = "Speed") + 
+  #scale_y_continuous(limits = c(0, 180), breaks = c(0, 90, 180)) +
+  #labs(x = "Frame ID", y = "Difference in current direction and ball land direction (deg)") +
+  theme_bw()  
 
-#' direction, ball landing point
-test %>%
-  ggplot(mapping = aes(x = x, y = dir, colour = frame_id)) +
-  geom_point() +
-  scale_colour_gradient(low = "black", high = "green") +
+#higher speed when travelling where the ball will land
+#makes sense
+
+
+
+
+
+#' distance from ball vs speed ...
+train_derived %>%
+  ggplot(mapping = aes(x = cut(dist_ball_land, breaks = c(0, 10, 20, 30, 40, 50, 60)), y = est_speed)) +
+  geom_boxplot() +
+  labs(x = "Distance to ball landing location", y = "speed") +
+  #geom_scattermore(alpha = 0.05) +
+  scale_y_continuous(limits = c(0, 15)) +
+  theme_bw()
+#small relationship here
+
+
+#' distance from ball vs acc ...
+train_derived %>%
+  ggplot(mapping = aes(x = cut(dist_ball_land, breaks = c(0, 10, 20, 30, 40, 50, 60)), y = est_acc_scalar)) +
+  geom_boxplot() +
+  labs(x = "Distance to ball landing location", y = "Acceleration") +
+  #geom_scattermore(alpha = 0.05) +
+  scale_y_continuous(limits = c(0, 20)) +
+  theme_bw()
+#acceleration higher when farther from ball, makes sense
+
+
+#' distance from ball vs ball_land_diff_dir ...offense
+train_derived %>%
+  filter(player_side == "Offense") %>%
+  ggplot(mapping = aes(x = cut(dist_ball_land, breaks = c(0, 10, 20, 30, 40, 50, 60)), y = ball_land_dir_diff)) +
+  geom_boxplot() +
+  labs(x = "Distance to ball landing location", y = "Difference to Ball Landing Direction") +
+  theme_bw()
+
+#' distance from ball vs ball_land_diff_dir defense
+train_derived %>%
+  filter(player_side == "Defense") %>%
+  ggplot(mapping = aes(x = cut(dist_ball_land, breaks = c(0, 10, 20, 30, 40, 50, 60)), y = ball_land_dir_diff)) +
+  labs(x = "Distance to ball landing location", y = "Difference to Ball Landing Direction") +
+  geom_boxplot() +
   theme_bw()
 
 
 
 
+#' none of these are linear relationships, distributions are weird and so many interactions... 
+#' non-parametric def the way to go
 
 
 
@@ -476,6 +633,23 @@ test %>%
 #' 
 #' 
 #' 2. start developing models for the each features needed above (direction, speed, acceleration)
+#' 
+#' 
+#' 3. start thinking about how you will actually model
+#'      -have to fit a model on each frame? seems way to expensive
+#'      -separate model for s, dir, a, ...
+#'      
+#'      -start with the simplest things you can do as a baseline, then go from there
+#'      
+#'      
+#' 4. update ball_land_dir_diff to be a radius around the ball
+#'      -rather than making the goal to get to the exact point the ball will land, make the goal to get in some radius around this point
+#'      -in reality, players just need to get close enough to catch it, not necessarily on the exact landing point
+#'      -this might help clear up the issue of ball_land_dir_diff raising when player gets super close to landing point
+#'      -I guess this is only for the offensive team
+#'      
+#'      -first do some EDA to see how close player needs to get to catch the ball, or how close they usually get
+#'      -this could also be a tuning parameter? can adjust how big the radius should be to the landing point?
 
 
 
