@@ -372,7 +372,11 @@ train_calcs = train %>%
          est_speed = dist_diff/((window_size)/10), #yards/second (1 frame is 0.1 seconds)
          est_acc_vector = (lead(est_speed, n = lead_frames) - lag(est_speed, n = lag_frames))/((window_size)/10), #this has directions (negative accelerations)
          est_acc_scalar = abs(est_acc_vector),
-         est_dir = get_dir(x_diff = x_diff, y_diff = y_diff)) %>%
+         est_dir = get_dir(x_diff = x_diff, y_diff = y_diff),
+         #distance between current x,y and ball land x,y
+         ball_land_diff_x = ball_land_x - x,
+         ball_land_diff_y = ball_land_y - y
+         ) %>%
   ungroup()
   
 
