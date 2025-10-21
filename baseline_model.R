@@ -3,6 +3,7 @@
 library(tidyverse)
 library(here)
 library(ggrepel)
+library(xgboost)
 
 ############################################### TO DO ############################################### 
 
@@ -260,47 +261,112 @@ set.seed(1999)
 #   curr_rmse #return RMSE
 # }
 
-
+set.seed(1999)
+results = list()
 for (fold in 1:num_folds) {
+  print(fold) #see progress
+  
   #indeces of the current cv split
   curr_cv_split = (sample(n_game_player_plays) %% num_folds) + 1 
   #ordering the response columns first and removing any NAs
   data_mod = train %>% 
     #order the columns
-    select(est_dir, est_speed, est_acc_vector, everything()) %>%
+    select(est_dir, est_speed, est_acc_vector, game_player_play_id, everything()) %>%
     #remove NA responses
     filter(!is.na(est_dir) & !is.na(est_speed) & !is.na(est_acc_vector)) %>%
     #unselect unnecessary feature columns
     select(-c(game_id, nfl_id, play_id, s, a, dir, player_to_predict, player_birth_date,
-              est_acc_scalar, game_player_play_id))
+              est_acc_scalar))
     
-    
-  
   #current training set
   curr_train = data_mod %>% filter(game_player_play_id %in% which(curr_cv_split != fold))
-    
   #current test set
-  curr_test = data_mod %>% filter(game_player_play_id %in% which(curr_cv_split == fold))
+  curr_test = data_mod %>% filter(game_player_play_id %in% which(curr_cv_split == fold) )
   
   
   #now fit a direction, speed, and acceleration model
-  dir_xg = xgboost(data = data.matrix(curr_train[,-1]), label = curr_train$est_dir,
-                   nrounds = 100)
-  speed_xg = xgboost(data = data.matrix(curr_train[,-2]), label = curr_train$est_speed,
-                     nrounds = 100)
-  acc_xg = xgboost(data = data.matrix(curr_train[,-3]), label = curr_train$est_acc_vector,
-                   nrounds = 100)
+  curr_dir_xg = xgboost(data = data.matrix(curr_train[,-c(1, 4)]), label = curr_train$est_dir,
+                   nrounds = 50, print_every_n = 10)
+  curr_speed_xg = xgboost(data = data.matrix(curr_train[,-c(2, 4)]), label = curr_train$est_speed,
+                     nrounds = 50, print_every_n = 10)
+  curr_acc_xg = xgboost(data = data.matrix(curr_train[,-c(3, 4)]), label = curr_train$est_acc_vector,
+                   nrounds = 50, print_every_n = 10)
   
-  
-  # #current model fit on training set
-  # curr_xg = xgboost(data = data.matrix(curr_train[,-1]), label = curr_train$accident_risk,
-  #                   max.depth = 3, eta = 0.39, nrounds = 100, objective = "reg:squarederror",
-  #                   min_child_weight = 1,  colsample_bytree = colsample_bytree, subsample = subsample)
-  # curr_rmse = sqrt(mean((curr_test$accident_risk - predict(curr_xg, data.matrix(curr_test[,-1])))^2))
-  # curr_rmse #return RMSE
+  #store predictions
+  results[[fold]] = curr_test %>%
+    mutate(dir_pred = predict(curr_dir_xg, data.matrix(curr_test[,-c(1, 4)])),
+           speed_pred = predict(curr_speed_xg, data.matrix(curr_test[,-c(2, 4)])),
+           acc_pred = predict(curr_acc_xg, data.matrix(curr_test[,-c(3, 4)])))
 }
 
+#now use predicted dir, speed, acc to predict positions
+results_pred = results %>% 
+  bind_rows() %>%
+  #take the mean if plays were in multiple plays
+  group_by(game_player_play_id, frame_id) %>%
+  mutate(dir_pred = mean(dir_pred),
+         speed_pred = mean(speed_pred),
+         acc_pred = mean(acc_pred)) %>%
+  ungroup() %>%
+  filter(throw == "post" | (throw == "pre" & lead(throw) == "post")) %>% #filter for post throw only
+  #update position
+  mutate(pred_dist_diff = speed_pred*0.1 + acc_pred*0.5*0.1^2)
 
+
+preds = matrix(ncol = 2, 
+               nrow = nrow(results_pred),
+               dimnames = list(seq(1:nrow(results_pred)), c("x", "y")))
+#loop
+for (i in 2:nrow(results_pred)) {
+  if(i %% 10000 == 0) {print(paste0(round(i/nrow(results_pred), 2), " complete"))} #see progress
+  
+  prev_row = results_pred[i-1,]
+  curr_row = results_pred[i,]
+  
+  #initialize at last observed values before throw
+  if (prev_row$throw == "pre") {
+    prev_x = prev_row$x
+    prev_y = prev_row$y
+  } else {
+    #previous x,y from past prediction
+    prev_x = preds[i-1,1]
+    prev_y = preds[i-1,2]
+  }
+  #new prediction
+  pred_x = prev_x + cos(((90 - curr_row$dir_pred) %% 360)*pi/180)*curr_row$pred_dist_diff
+  pred_y = prev_y + sin(((90 - curr_row$dir_pred) %% 360)*pi/180)*curr_row$pred_dist_diff
+    
+  #store
+  preds[i,1] = pred_x
+  preds[i,2] = pred_y
+}
+
+#add predictions back to results df
+results_pred$pred_x = preds[,1]
+results_pred$pred_y = preds[,2]
+
+
+#predicted position vs actual position
+plot_df = results_pred %>%  
+  group_by(game_player_play_id) %>%
+  filter(cur_group_id() == 4,
+         throw == "post") %>%
+  pivot_longer(cols = c(x, y, pred_x, pred_y),
+               names_to = c("obs", ".value"),
+               names_pattern = "(pred_)?(.*)") %>%
+  mutate(obs = ifelse(obs == "", "True Position", "Predicted Position"))
+
+#plot
+ggplot(plot_df, mapping = aes(x = x, y = y, colour = obs, label = frame_id)) + 
+  geom_point() +
+  #geom_text_repel(data = plot_df %>%filter(obs == "True Position")) +
+  scale_x_continuous(n.breaks = 20) +
+  scale_y_continuous(n.breaks = 20) +
+  theme_bw()
+
+
+
+#get rmse
 
 
 
