@@ -37,27 +37,9 @@ source(here("helper.R"))
 #' 
 #' 
 
-#just use previous frame only for calculations for now
-lead_frames = 0
-lag_frames = 1
-window_size = lag_frames + lead_frames
-
 #add predictions to train
 train_pred = train %>%
-  filter(player_to_predict) %>%
-  group_by(game_id, nfl_id, play_id) %>%
-  #filter(cur_group_id() == group_id) %>% #use this to filter for only 1 player in 1 play in 1 game
-  select(game_id, play_id, throw, s, a, dir, o, frame_id, player_name, x, y) %>%
-  #first calculate s, a, dir from true values of x,y after throw
-  mutate(x_diff = lead(x, n = lead_frames) - lag(x, n = lag_frames, default = NA), #the difference in x direction from previous frame in yards
-         y_diff = lead(y, n = lead_frames) - lag(y, n = lag_frames, default = NA), #the difference in y direction from previous frame in yards
-         dist_diff = sqrt(x_diff^2 + y_diff^2), #distance travelled from previous frame in yards
-         est_speed = dist_diff/((window_size)/10), #yards/second (1 frame is 0.1 seconds)
-         est_acc_vector = (lead(est_speed, n = lead_frames) - lag(est_speed, n = lag_frames))/((window_size)/10), #this has directions (negative accelerations)
-         est_acc_scalar = abs(est_acc_vector),
-         est_dir = get_dir(x_diff = x_diff, y_diff = y_diff)) %>% 
-  ungroup() %>%
-  #now calculate position in next frame using true s, a, dir
+  #calculate position in next frame using true s, a, dir
   mutate(pred_dist_diff = est_speed*0.1 + est_acc_vector*0.5*0.1^2, #using speed + acc
          pred_dist_diff_2 = est_speed*0.1, #using speed only
          pred_x_sa = x + cos(((90 - est_dir) %% 360)*pi/180)*pred_dist_diff,
@@ -77,10 +59,7 @@ train_pred = train %>%
 #direction of previous frame vs direction of next frame
 group_id = 1 #single player on single play
 plot_df = train_pred %>% 
-  group_by(game_id, nfl_id, play_id) %>% 
-  filter(cur_group_id() == group_id) %>%
-  ungroup() %>%
-  select(-c(game_id, nfl_id, play_id, o, player_name))
+  filter(game_player_play_id == group_id)
 
 #plot direction
 ggplot(data = plot_df, aes(x = est_dir, y = lead(est_dir))) +
@@ -107,7 +86,7 @@ ggplot(data = plot_df, aes(x = est_acc_vector, y = lead(est_acc_vector))) +
   theme_bw()
 
 
-#' lets see how well it can predict using the true x,y coordinates though
+#' lets see how well it can predict using the true x,y coordinates
 
 #predicted position vs actual position
 plot_df %>% 
@@ -136,8 +115,6 @@ get_rmse(true_x = test_preds$x, true_y = test_preds$y,
 #speed only
 get_rmse(true_x = test_preds$x, true_y = test_preds$y, 
          pred_x = test_preds$pred_x_s, pred_y = test_preds$pred_y_s)
-
-
 
 
 #summarise rmse across all players
@@ -175,26 +152,17 @@ train_pred %>%
 #' including speed + acceleration better
 
 
-
 #' this confirms that getting good predictions is dependent on getting good speed, acceleration, and direction at each frame
-#' but getting good speed, acceleration, adn direction depends on good location
+#' but getting good speed, acceleration, and direction depends on good location
 #' its circular
 #' I think the way to go is to iterate by conditioning on eachother until convergance, like markov chain, gibbs
 
 
 
-
-
 #' now lets try using previous prediction as the previous position, rather than true position values
 #' pretty sure this will just result in a straight line but lets try it
-#' 
 
-test = train %>%
-  group_by(game_id, nfl_id, play_id) %>%
-  filter(cur_group_id() == group_id) %>%
-  ungroup()
-
-test = test[-c(1:10),]
+test = plot_df[-c(1:10),]
 
 #preds = data.frame("x" = NULL, "y" = NULL, "dir" = NULL, "s" = NULL, "a" = NULL)
 preds = matrix(ncol = 5, nrow = nrow(test),
@@ -242,12 +210,95 @@ preds
 
 #' can eventually turn this into a function where you supply the pre throw info and it predicts all the post throw frames
 
+#' create a DAG
 
 
-#' next step is to create a DAG
 
 
 
+############################################### Baseline Model ############################################### 
+
+#' this is a simple model that can then be built upon
+#' autoregressive, predicts position in next frame from current frame
+#' need three seperate models: direction, speed, acceleration
+#' once you have these three things, then its a simple kinematics formula
+
+
+#' ignore the player info and everything else right now, just keep it simple
+#' 
+#' also right now this is only using players_to_predict, not sure if it makes sense to include the other players?
+
+
+
+#' use cross-validation by splitting up different game-player-plays groups
+num_folds = 10
+n_game_player_plays = train %>% pull(game_player_play_id) %>% unique() %>% length() #46,045
+
+#' do this in parallel
+library(foreach)
+library(doParallel)
+
+n_cores = 10
+cluster = parallel::makeCluster(
+  n_cores, 
+  type = "PSOCK"
+)
+doParallel::registerDoParallel(cl = cluster)
+
+set.seed(1999)
+# results = foreach(folds = 1:num_folds) %dopar% {
+#   curr_cv_split = (sample(nrow(train)) %% folds) + 1 #indeces of the current cv split
+#   
+#   curr_train = train_sub[(curr_cv_split != fold),] #current training set
+#   curr_test = train_sub[(curr_cv_split == fold),] #current test set
+#   
+#   #current model fit on training set
+#   curr_xg = xgboost(data = data.matrix(curr_train[,-1]), label = curr_train$accident_risk,
+#                     max.depth = 3, eta = 0.39, nrounds = 100, objective = "reg:squarederror",
+#                     min_child_weight = 1,  colsample_bytree = colsample_bytree, subsample = subsample)
+#   curr_rmse = sqrt(mean((curr_test$accident_risk - predict(curr_xg, data.matrix(curr_test[,-1])))^2))
+#   curr_rmse #return RMSE
+# }
+
+
+for (fold in 1:num_folds) {
+  #indeces of the current cv split
+  curr_cv_split = (sample(n_game_player_plays) %% num_folds) + 1 
+  #ordering the response columns first and removing any NAs
+  data_mod = train %>% 
+    #order the columns
+    select(est_dir, est_speed, est_acc_vector, everything()) %>%
+    #remove NA responses
+    filter(!is.na(est_dir) & !is.na(est_speed) & !is.na(est_acc_vector)) %>%
+    #unselect unnecessary feature columns
+    select(-c(game_id, nfl_id, play_id, s, a, dir, player_to_predict, player_birth_date,
+              est_acc_scalar, game_player_play_id))
+    
+    
+  
+  #current training set
+  curr_train = data_mod %>% filter(game_player_play_id %in% which(curr_cv_split != fold))
+    
+  #current test set
+  curr_test = data_mod %>% filter(game_player_play_id %in% which(curr_cv_split == fold))
+  
+  
+  #now fit a direction, speed, and acceleration model
+  dir_xg = xgboost(data = data.matrix(curr_train[,-1]), label = curr_train$est_dir,
+                   nrounds = 100)
+  speed_xg = xgboost(data = data.matrix(curr_train[,-2]), label = curr_train$est_speed,
+                     nrounds = 100)
+  acc_xg = xgboost(data = data.matrix(curr_train[,-3]), label = curr_train$est_acc_vector,
+                   nrounds = 100)
+  
+  
+  # #current model fit on training set
+  # curr_xg = xgboost(data = data.matrix(curr_train[,-1]), label = curr_train$accident_risk,
+  #                   max.depth = 3, eta = 0.39, nrounds = 100, objective = "reg:squarederror",
+  #                   min_child_weight = 1,  colsample_bytree = colsample_bytree, subsample = subsample)
+  # curr_rmse = sqrt(mean((curr_test$accident_risk - predict(curr_xg, data.matrix(curr_test[,-1])))^2))
+  # curr_rmse #return RMSE
+}
 
 
 
