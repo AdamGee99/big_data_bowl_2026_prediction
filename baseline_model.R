@@ -158,55 +158,55 @@ train_pred %>%
 #' its circular
 #' I think the way to go is to iterate by conditioning on eachother until convergance, like markov chain, gibbs
 
-
-
-#' now lets try using previous prediction as the previous position, rather than true position values
-#' pretty sure this will just result in a straight line but lets try it
-
-test = plot_df[-c(1:10),]
-
-#preds = data.frame("x" = NULL, "y" = NULL, "dir" = NULL, "s" = NULL, "a" = NULL)
-preds = matrix(ncol = 5, nrow = nrow(test),
-               dimnames = list(seq(1:nrow(test)),
-                               c("x", "y", "dir", "s", "a")))
-for (i in 1:nrow(test)) {
-  curr_frame = test[i,] #the current frame and all the info
-  
-  if (i %in% c(1,2)) {
-    preds_x[i] = curr_frame$x
-    preds_y[i] = curr_frame$y
-    
-    #initialize first two rows by true observations
-    preds[i,] = c(curr_frame$x, curr_frame$y, 
-                  curr_frame$dir, curr_frame$s, curr_frame$a)
-  }
-  else {
-    prev_x = preds[i-2, 1]
-    prev_y = preds[i-2, 2]
-    
-    curr_x = preds[i-1, 1]
-    curr_y = preds[i-1, 2]
-    
-    x_diff = curr_x - prev_x
-    y_diff = curr_y - prev_y
-    dist_diff = get_dist(x_diff, y_diff)
-
-    est_dir = get_dir(x_diff, y_diff) #direction change between two frames
-    est_speed = dist_diff/0.1 #just using 1 frame for now
-    est_acc = (preds[i-1, 4] - preds[i-2, 4])/0.1 #change in speed over 1 frame
-    
-    #update position
-    pred_dist_diff = est_speed*0.1 + est_acc*0.5*0.1^2 #predicted distance travelled between frames - using speed + acceleration
-    pred_x = prev_x + cos(((90 - est_dir) %% 360)*pi/180)*pred_dist_diff
-    pred_y = prev_y + sin(((90 - est_dir) %% 360)*pi/180)*pred_dist_diff
-    
-    #store
-    preds[i,] = c(pred_x, pred_y, est_dir, est_speed, est_acc)
-  }
-} 
-#preds = preds %>% as.data.frame()
-#colnames(preds) = c("x", "y", "dir", "s", "a")
-preds
+#' 
+#' 
+#' #' now lets try using previous prediction as the previous position, rather than true position values
+#' #' pretty sure this will just result in a straight line but lets try it
+#' 
+#' test = plot_df[-c(1:10),]
+#' 
+#' #preds = data.frame("x" = NULL, "y" = NULL, "dir" = NULL, "s" = NULL, "a" = NULL)
+#' preds = matrix(ncol = 5, nrow = nrow(test),
+#'                dimnames = list(seq(1:nrow(test)),
+#'                                c("x", "y", "dir", "s", "a")))
+#' for (i in 1:nrow(test)) {
+#'   curr_frame = test[i,] #the current frame and all the info
+#'   
+#'   if (i %in% c(1,2)) {
+#'     preds_x[i] = curr_frame$x
+#'     preds_y[i] = curr_frame$y
+#'     
+#'     #initialize first two rows by true observations
+#'     preds[i,] = c(curr_frame$x, curr_frame$y, 
+#'                   curr_frame$dir, curr_frame$s, curr_frame$a)
+#'   }
+#'   else {
+#'     prev_x = preds[i-2, 1]
+#'     prev_y = preds[i-2, 2]
+#'     
+#'     curr_x = preds[i-1, 1]
+#'     curr_y = preds[i-1, 2]
+#'     
+#'     x_diff = curr_x - prev_x
+#'     y_diff = curr_y - prev_y
+#'     dist_diff = get_dist(x_diff, y_diff)
+#' 
+#'     est_dir = get_dir(x_diff, y_diff) #direction change between two frames
+#'     est_speed = dist_diff/0.1 #just using 1 frame for now
+#'     est_acc = (preds[i-1, 4] - preds[i-2, 4])/0.1 #change in speed over 1 frame
+#'     
+#'     #update position
+#'     pred_dist_diff = est_speed*0.1 + est_acc*0.5*0.1^2 #predicted distance travelled between frames - using speed + acceleration
+#'     pred_x = prev_x + cos(((90 - est_dir) %% 360)*pi/180)*pred_dist_diff
+#'     pred_y = prev_y + sin(((90 - est_dir) %% 360)*pi/180)*pred_dist_diff
+#'     
+#'     #store
+#'     preds[i,] = c(pred_x, pred_y, est_dir, est_speed, est_acc)
+#'   }
+#' } 
+#' #preds = preds %>% as.data.frame()
+#' #colnames(preds) = c("x", "y", "dir", "s", "a")
+#' preds
 
 
 #' can eventually turn this into a function where you supply the pre throw info and it predicts all the post throw frames
@@ -231,9 +231,212 @@ preds
 
 
 
+#' first fit model on entire dataset
+#' not worried about tuning right now
+
+data_mod = train %>% 
+  #order the columns
+  select(est_dir, est_speed, est_acc_vector, game_player_play_id, everything()) %>%
+  #remove NA responses
+  filter(!is.na(est_dir) & !is.na(est_speed) & !is.na(est_acc_vector)) %>%
+  #unselect unnecessary feature columns - things that can't be calculated post throw
+  select(-c(game_id, nfl_id, play_id, s, a, o, dir, player_to_predict, player_birth_date,
+            est_acc_scalar)) %>%
+  rename(s = est_speed, a = est_acc_vector, dir = est_dir)
+#these have the true x,y values but that's ok
+#fitting it on true value calculations is ok, but we just can't use the true values to calculate when we actually predict
+
+#' 75% train, 25% test - by game_player_play groups
+n_game_player_plays = train %>% pull(game_player_play_id) %>% unique() %>% length() #46,045
+split = sample(unique(data_mod$game_player_play_id), size = round(0.8*n_game_player_plays))
+curr_train = data_mod %>% filter(game_player_play_id %in% split)
+curr_test = data_mod %>% filter(!(game_player_play_id %in% split))
+
+#fit models
+dir_xg = xgboost(data =  curr_train %>% 
+                   select(-c(dir, game_player_play_id, x, y,
+                             dir, frame_id, ball_land_x, ball_land_y, 
+                             num_frames_output, num_frames)) %>% data.matrix(), 
+                 label = curr_train$dir,
+                 nrounds = 100, print_every_n = 10)
+
+speed_xg = xgboost(data =  curr_train %>% 
+                     select(-c(s, game_player_play_id, x, y,
+                               dir, frame_id, ball_land_x, ball_land_y, 
+                               num_frames_output, num_frames)) %>% data.matrix(), 
+                   label = curr_train$s,
+                   nrounds = 100, print_every_n = 10)
+
+acc_xg = xgboost(data = curr_train %>% 
+                   select(-c(a, game_player_play_id, x, y,
+                             dir, frame_id, ball_land_x, ball_land_y, 
+                             num_frames_output, num_frames)) %>% data.matrix(), 
+                 label = curr_train$a,
+                 nrounds = 100, print_every_n = 10)
+
+#feature importance
+xgb.importance(model = dir_xg)
+xgb.importance(model = speed_xg)
+xgb.importance(model = acc_xg)
+
+
+#now use fits on test set to predict position on future frame, then recalculate kinematics, then predict future frame, recalculate, ... repeat
+
+#just predict on post throw
+curr_test = curr_test %>% 
+  filter(throw == "post" | (throw == "pre" & lead(throw) == "post")) #filter for post throw only
+
+#what if you fit the models only on post throw?
+#or maybe filter out the first few frames in each play
+
+#for testing
+#curr_test = curr_test[1:20,]
+
+#storing restuls
+results_pred = list()
+
+#loop
+set.seed(1999)
+for (i in 1:nrow(curr_test)) {
+  if(i %% 10000 == 0) {print(paste0(round(i/nrow(curr_test), 2), " complete"))} #see progress
+  
+  curr_row = curr_test[i,]
+
+  #initialize position as last observed values before throw
+  if (curr_row$throw == "pre") { 
+    #if last observation pre throw, predict next frame position using true observed kinematic values
+    pred_dist_diff = curr_row$s*0.1 + curr_row$a*0.5*0.1^2
+    
+    pred_x = curr_row$x + cos(((90 - curr_row$dir) %% 360)*pi/180)*pred_dist_diff
+    pred_y = curr_row$y + sin(((90 - curr_row$dir) %% 360)*pi/180)*pred_dist_diff
+    
+    #predict dir, s, a
+    pred_dir = predict(dir_xg,  curr_row %>% select(-c(dir, game_player_play_id, x, y, dir, 
+                                                       frame_id, ball_land_x, ball_land_y, 
+                                                       num_frames_output, num_frames)) %>% data.matrix())
+    pred_s = predict(speed_xg, curr_row %>% select(-c(s, game_player_play_id, x, y, dir, 
+                                                      frame_id, ball_land_x, ball_land_y, 
+                                                      num_frames_output, num_frames)) %>% data.matrix())
+    pred_a = predict(acc_xg, curr_row %>% select(-c(a, game_player_play_id, x, y, dir, 
+                                                    frame_id, ball_land_x, ball_land_y, 
+                                                    num_frames_output, num_frames)) %>% data.matrix())
+  } else {
+    prev_row = results_pred[[i-1]]
+    
+    #first predict kinematics at current frame using previous frame's predicted position
+    #set current position as previous predicted position
+    curr_x = prev_row$pred_x 
+    curr_y = prev_row$pred_y 
+    prev_x = prev_row$x
+    prev_y = prev_row$y
+    
+    curr_row$x = curr_x
+    curr_row$y = curr_y
+    
+    ### predict kinematics using xg models
+    #update all features necessary for dir,s,a models
+    
+    x_diff = curr_row$x_diff = curr_x - prev_x
+    y_diff = curr_row$y_diff = curr_y - prev_y
+    
+    #current dir, s, a
+    curr_dir = prev_row$pred_dir = curr_row$dir 
+    curr_s = prev_row$pred_s = curr_row$s
+    curr_a = prev_row$pred_a = curr_row$a
+    
+    #other features
+    curr_row$dir_diff = min(
+      (curr_row$dir - prev_row$dir) %% 360,
+      (-(curr_row$dir - prev_row$dir)) %% 360
+    )
+    curr_row$dist_diff = get_dist(x_diff = x_diff, y_diff = y_diff)
+    curr_row$curr_ball_land_dir = get_dir(x_diff = curr_row$ball_land_x - curr_x, y_diff = curr_row$ball_land_y - curr_y)
+    curr_row$dist_ball_land = get_dist(x_diff = curr_row$ball_land_x - curr_x, y_diff = curr_row$ball_land_y - curr_y)
+    
+    curr_row$ball_land_dir_diff = min(
+      (curr_row$dir - curr_row$curr_ball_land_dir) %% 360,
+      (-(curr_row$dir - curr_row$curr_ball_land_dir)) %% 360
+    ) 
+    
+    curr_row$ball_land_diff_x = curr_row$ball_land_x - curr_x
+    curr_row$ball_land_diff_y = curr_row$ball_land_y - curr_y
+    
+    
+    #predict dir, s, a
+    pred_dir = predict(dir_xg,  curr_row %>% select(-c(dir, game_player_play_id, x, y, dir, 
+                                                       frame_id, ball_land_x, ball_land_y, 
+                                                       num_frames_output, num_frames)) %>% data.matrix())
+    pred_s = predict(speed_xg, curr_row %>% select(-c(s, game_player_play_id, x, y, dir, 
+                                                      frame_id, ball_land_x, ball_land_y, 
+                                                      num_frames_output, num_frames)) %>% data.matrix())
+    pred_a = predict(acc_xg, curr_row %>% select(-c(a, game_player_play_id, x, y, dir, 
+                                                    frame_id, ball_land_x, ball_land_y, 
+                                                    num_frames_output, num_frames)) %>% data.matrix())
+    
+    #update the remaining features that rely on predicted dir, s, a
+    
+    
+    #finally predict next frame position
+    pred_dist_diff = pred_s*0.1 + pred_a*0.5*0.1^2
+    
+    pred_x = curr_x + cos(((90 - pred_dir) %% 360)*pi/180)*pred_dist_diff
+    pred_y = curr_y + sin(((90 - pred_dir) %% 360)*pi/180)*pred_dist_diff
+  }
+  
+  #store predicted positions
+  curr_row$pred_x = pred_x
+  curr_row$pred_y = pred_y
+  
+  #store predicted kinematics
+  curr_row$pred_dir = pred_dir
+  curr_row$pred_s = pred_s
+  curr_row$pred_a = pred_a
+  
+  #store
+  results_pred[[i]] = curr_row
+}
+#bind results into df
+results_pred = results_pred %>%
+  bind_rows() %>%
+  #join true x,y values
+  mutate(true_x = curr_test$x,
+         true_y = curr_test$y)
+
+#def need to do this in parallel
+
+
+#predicted position vs actual position
+plot_df = results_pred %>%  
+  group_by(game_player_play_id) %>%
+  filter(cur_group_id() == 320,
+         throw == "post") %>%
+  pivot_longer(cols = c(x, y, true_x, true_y),
+               names_to = c("obs", ".value"),
+               names_pattern = "(true_)?(.*)") %>%
+  mutate(obs = ifelse(obs == "", "Predicted", "True"))
+
+#plot
+ggplot(plot_df, mapping = aes(x = x, y = y, colour = obs, label = frame_id)) + 
+  geom_point() +
+  geom_text_repel(data = plot_df %>%filter(obs == "True Position")) +
+  scale_x_continuous(n.breaks = 20) +
+  scale_y_continuous(n.breaks = 20) +
+  theme_bw()
+
+
+#' still predicting straight line and constant speed
+
+
+
+
+
+############################################### Tuning - Cross Validation ############################################### 
+
+
+
 #' use cross-validation by splitting up different game-player-plays groups
 num_folds = 10
-n_game_player_plays = train %>% pull(game_player_play_id) %>% unique() %>% length() #46,045
+
 
 #' do this in parallel
 library(foreach)
@@ -277,7 +480,7 @@ for (fold in 1:num_folds) {
     #unselect unnecessary feature columns
     select(-c(game_id, nfl_id, play_id, s, a, dir, player_to_predict, player_birth_date,
               est_acc_scalar))
-    
+  
   #current training set
   curr_train = data_mod %>% filter(game_player_play_id %in% which(curr_cv_split != fold))
   #current test set
@@ -286,29 +489,43 @@ for (fold in 1:num_folds) {
   
   #now fit a direction, speed, and acceleration model
   curr_dir_xg = xgboost(data = data.matrix(curr_train[,-c(1, 4)]), label = curr_train$est_dir,
-                   nrounds = 50, print_every_n = 10)
+                        nrounds = 50, print_every_n = 10)
   curr_speed_xg = xgboost(data = data.matrix(curr_train[,-c(2, 4)]), label = curr_train$est_speed,
-                     nrounds = 50, print_every_n = 10)
+                          nrounds = 50, print_every_n = 10)
   curr_acc_xg = xgboost(data = data.matrix(curr_train[,-c(3, 4)]), label = curr_train$est_acc_vector,
-                   nrounds = 50, print_every_n = 10)
-  
-  #store predictions
-  results[[fold]] = curr_test %>%
-    mutate(dir_pred = predict(curr_dir_xg, data.matrix(curr_test[,-c(1, 4)])),
-           speed_pred = predict(curr_speed_xg, data.matrix(curr_test[,-c(2, 4)])),
-           acc_pred = predict(curr_acc_xg, data.matrix(curr_test[,-c(3, 4)])))
+                        nrounds = 50, print_every_n = 10)
+  # #store predictions
+  # results[[fold]] = curr_test %>%
+  #   mutate(dir_pred = predict(curr_dir_xg, data.matrix(curr_test[,-c(1, 4)])),
+  #          speed_pred = predict(curr_speed_xg, data.matrix(curr_test[,-c(2, 4)])),
+  #          acc_pred = predict(curr_acc_xg, data.matrix(curr_test[,-c(3, 4)])))
 }
+#' we don't predict here
+#' need to do it later on sequentially after we have prediction of future frame
+#' 
+#' if we're not worried about tuning here, just set it to one fold and train on entire set
 
-#now use predicted dir, speed, acc to predict positions
+data_mod = train %>% 
+  #order the columns
+  select(est_dir, est_speed, est_acc_vector, game_player_play_id, everything()) %>%
+  #remove NA responses
+  filter(!is.na(est_dir) & !is.na(est_speed) & !is.na(est_acc_vector),
+         player_to_predict) %>%
+  #unselect unnecessary feature columns
+  select(-c(game_id, nfl_id, play_id, s, a, dir, player_to_predict, player_birth_date,
+            est_acc_scalar))
+
+
 results_pred = results %>% 
   bind_rows() %>%
-  #take the mean if plays were in multiple plays
+  filter(throw == "post" | (throw == "pre" & lead(throw) == "post")) %>% #filter for post throw only
+  #take the mean prediction if plays were in multiple folds
   group_by(game_player_play_id, frame_id) %>%
   mutate(dir_pred = mean(dir_pred),
          speed_pred = mean(speed_pred),
          acc_pred = mean(acc_pred)) %>%
+  dplyr::slice(1) %>%
   ungroup() %>%
-  filter(throw == "post" | (throw == "pre" & lead(throw) == "post")) %>% #filter for post throw only
   #update position
   mutate(pred_dist_diff = speed_pred*0.1 + acc_pred*0.5*0.1^2)
 
@@ -316,60 +533,10 @@ results_pred = results %>%
 preds = matrix(ncol = 2, 
                nrow = nrow(results_pred),
                dimnames = list(seq(1:nrow(results_pred)), c("x", "y")))
-#loop
-for (i in 2:nrow(results_pred)) {
-  if(i %% 10000 == 0) {print(paste0(round(i/nrow(results_pred), 2), " complete"))} #see progress
-  
-  prev_row = results_pred[i-1,]
-  curr_row = results_pred[i,]
-  
-  #initialize at last observed values before throw
-  if (prev_row$throw == "pre") {
-    prev_x = prev_row$x
-    prev_y = prev_row$y
-  } else {
-    #previous x,y from past prediction
-    prev_x = preds[i-1,1]
-    prev_y = preds[i-1,2]
-  }
-  #new prediction
-  pred_x = prev_x + cos(((90 - curr_row$dir_pred) %% 360)*pi/180)*curr_row$pred_dist_diff
-  pred_y = prev_y + sin(((90 - curr_row$dir_pred) %% 360)*pi/180)*curr_row$pred_dist_diff
-    
-  #store
-  preds[i,1] = pred_x
-  preds[i,2] = pred_y
-}
 
 #add predictions back to results df
 results_pred$pred_x = preds[,1]
 results_pred$pred_y = preds[,2]
-
-
-#predicted position vs actual position
-plot_df = results_pred %>%  
-  group_by(game_player_play_id) %>%
-  filter(cur_group_id() == 4,
-         throw == "post") %>%
-  pivot_longer(cols = c(x, y, pred_x, pred_y),
-               names_to = c("obs", ".value"),
-               names_pattern = "(pred_)?(.*)") %>%
-  mutate(obs = ifelse(obs == "", "True Position", "Predicted Position"))
-
-#plot
-ggplot(plot_df, mapping = aes(x = x, y = y, colour = obs, label = frame_id)) + 
-  geom_point() +
-  #geom_text_repel(data = plot_df %>%filter(obs == "True Position")) +
-  scale_x_continuous(n.breaks = 20) +
-  scale_y_continuous(n.breaks = 20) +
-  theme_bw()
-
-
-
-#get rmse
-
-
-
 
 
 ############################################### Misc Ideas I'll get to eventually ############################################### 
