@@ -428,6 +428,37 @@ ggplot(plot_df, mapping = aes(x = x, y = y, colour = obs, label = frame_id)) +
 
 
 
+### RMSE ###
+
+results_rmse = results_pred %>%
+  filter(throw == "post") %>%
+  group_by(game_player_play_id) %>%
+  summarise(rmse = get_rmse(true_x = true_x, true_y = true_y,
+                            pred_x = x, pred_y = y))
+
+results_rmse
+
+#plot
+results_rmse %>% 
+  ggplot(mapping = aes(y = rmse)) +
+  geom_boxplot() +
+  theme_bw()
+
+results_rmse %>% 
+  ggplot(mapping = aes(y = rmse)) +
+  geom_boxplot() +
+  theme_bw() + ylim(c(0, 5))
+
+#across entire dataset
+results_pred %>% 
+  filter(throw == "post") %>%
+  summarise(rmse = get_rmse(true_x = true_x, true_y = true_y,
+                            pred_x = x, pred_y = y))
+
+#1.73
+
+
+
 
 
 ############################################### Tuning - Cross Validation ############################################### 
