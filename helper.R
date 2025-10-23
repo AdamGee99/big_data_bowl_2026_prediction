@@ -86,31 +86,6 @@ plot_speed_acc = function(group_id, lag_frames, lead_frames) {
     plot_layout(guides = "collect") & theme(legend.position = "bottom")
 }
 
-
-#' visualise single player's movement
-#' function only plots players to predict
-plot_player_movement = function(group_id) {
-  plot_df = train %>% 
-    filter(player_to_predict) %>% #filter for only players to predict
-    group_by(game_id, nfl_id, play_id) %>% 
-    filter(cur_group_id() == group_id) %>% #filter for a single player on a single play
-    select(frame_id, x, y, ball_land_x, ball_land_y, throw, player_side) %>%
-    ungroup() 
-  game_id = plot_df$game_id %>% unique()
-  play_id = plot_df$play_id %>% unique()
-  nfl_id = plot_df$nfl_id %>% unique()
-  
-  #plot
-  ggplot(data = plot_df, mapping = aes(x = x, y = y, colour = frame_id, shape = throw)) + #plot the movement
-    geom_point(size = 3) +
-    scale_colour_gradient(low = "black", high = "green") +
-    scale_shape_manual(values = c(19, 1)) + #hollow is pre throw, filled is post throw
-    geom_point(mapping = aes(x = ball_land_x, y = ball_land_y), colour = "red", size = 4) +
-    labs(title = paste0("Game: ", game_id, ", Play: ", play_id, ", Player ID: ", nfl_id)) +
-    theme_bw() +
-    guides(colour = "none", shape = "none")
-}
-
 #' plot player's observed vs estimated direction over a play
 #' calculation depends on number of ledaing and lagging frames
 plot_dir = function(group_id, lag_frames, lead_frames) {
@@ -140,6 +115,34 @@ plot_dir = function(group_id, lag_frames, lead_frames) {
 }
 
 
+#' visualise single player's movement
+#' function only plots players to predict
+plot_player_movement = function(group_id) {
+  plot_df = train %>% 
+    filter(player_to_predict) %>% #filter for only players to predict
+    group_by(game_id, nfl_id, play_id) %>% 
+    filter(cur_group_id() == group_id) %>% #filter for a single player on a single play
+    select(frame_id, x, y, ball_land_x, ball_land_y, throw, player_side) %>%
+    ungroup() 
+  
+  game_id = plot_df$game_id %>% unique()
+  play_id = plot_df$play_id %>% unique()
+  nfl_id = plot_df$nfl_id %>% unique()
+  
+  #plot
+  ggplot(data = plot_df, mapping = aes(x = x, y = y, colour = frame_id, shape = throw)) + #plot the movement
+    geom_point(size = 3) +
+    scale_colour_gradient(low = "black", high = "green") +
+    geom_point(aes(fill = "True"), x = NA, y = NA, color = "green", size = 2.5) + #dummy variable for legend
+    scale_shape_manual(values = c(19, 1)) + #hollow is pre throw, filled is post throw
+    geom_point(mapping = aes(x = ball_land_x, y = ball_land_y, fill = "Ball Land"), colour = "red", size = 4) +
+    #geom_point(mapping = aes(x = pred_x, y = pred_y, fill = "Predicted"), colour = "orange", size = 2.5) +
+    scale_fill_manual(name = "", values = c("True" = 16, "Ball Land" = 16, "Predicted" = 16)) +
+    labs(title = paste0("Game: ", game_id, ", Play: ", play_id, ", Player ID: ", nfl_id)) +
+    theme_bw() +
+    guides(colour = "none", shape = "none")
+}
+
 
 #' visualize single player's movement along with prediction
 #' need to have predictions first
@@ -162,9 +165,11 @@ plot_player_movement_pred = function(group_id, group_id_preds) {
   ggplot(data = plot_df, mapping = aes(x = x, y = y, colour = frame_id, shape = throw)) + #plot the movement
     geom_point(size = 3) +
     scale_colour_gradient(low = "black", high = "green") +
+    geom_point(aes(fill = "True"), x = NA, y = NA, color = "green", size = 2.5) + #dummy variable for legend
     scale_shape_manual(values = c(19, 1)) + #hollow is pre throw, filled is post throw
-    geom_point(mapping = aes(x = ball_land_x, y = ball_land_y), colour = "red", size = 4) +
-    geom_point(mapping = aes(x = pred_x, y = pred_y), colour = "orange", size = 2.5) +
+    geom_point(mapping = aes(x = ball_land_x, y = ball_land_y, fill = "Ball Land"), colour = "red", size = 4) +
+    geom_point(mapping = aes(x = pred_x, y = pred_y, fill = "Predicted"), colour = "orange", size = 2.5) +
+    scale_fill_manual(name = "", values = c("True" = 16, "Ball Land" = 16, "Predicted" = 16)) +
     labs(title = paste0("Game: ", game_id, ", Play: ", play_id, ", Player ID: ", nfl_id)) +
     theme_bw() +
     guides(colour = "none", shape = "none")
@@ -172,7 +177,7 @@ plot_player_movement_pred = function(group_id, group_id_preds) {
 
 
 #' function now plotting multiple players on same play
-multi_player_movement_pred = function(group_id) {
+multi_player_movement = function(group_id) {
   plot_df = train %>% 
     filter(player_to_predict) %>% #filter for only players that were targeted
     group_by(game_id, play_id) %>% 
@@ -219,16 +224,18 @@ multi_player_movement_pred = function(group_id, group_id_preds) {
   game_id = plot_df$game_id %>% unique()
   play_id = plot_df$play_id %>% unique()
   
-  #plot 
+  #plot
   ggplot(data = plot_df, mapping = aes(x = x, y = y, colour = colour, shape = throw)) + #plot the movement
     geom_point(size = 3) +
     scale_colour_identity() + 
+    geom_point(aes(fill = "True"), x = NA, y = NA, color = "green", size = 2.5) + #dummy variable for legend
     scale_shape_manual(values = c(19, 1)) + #hollow is pre throw, filled is post throw
-    geom_point(mapping = aes(x = ball_land_x, y = ball_land_y), colour = "red", size = 4) +
-    geom_point(mapping = aes(x = pred_x, y = pred_y), colour = "orange", size = 2.5) +
+    geom_point(mapping = aes(x = ball_land_x, y = ball_land_y, fill = "Ball Land"), colour = "red", size = 4) +
+    geom_point(mapping = aes(x = pred_x, y = pred_y, fill = "Predicted"), colour = "orange", size = 2.5) +
+    scale_fill_manual(name = "", values = c("True" = 16, "Ball Land" = 16, "Predicted" = 16)) +
     labs(title = paste0("Game: ", game_id, ", Play: ", play_id)) +
     theme_bw() +
-    guides(shape = "none")
+    guides(colour = "none", shape = "none")
 }
 
 
