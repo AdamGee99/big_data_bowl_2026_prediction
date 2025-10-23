@@ -199,32 +199,28 @@ data_mod = train %>%
 #fitting it on true value calculations is ok, but we just can't use the true values to calculate when we actually predict
 
 #' 80% train, 20% test - by game_player_play groups
+set.seed(1999)
 n_game_player_plays = train %>% pull(game_player_play_id) %>% unique() %>% length() #46,045
 split = sample(unique(data_mod$game_player_play_id), size = round(0.8*n_game_player_plays))
 curr_train = data_mod %>% filter(game_player_play_id %in% split)
 curr_test = data_mod %>% filter(!(game_player_play_id %in% split))
 
 #fit models
-dir_xg = xgboost(data =  curr_train %>% 
-                   select(-c(dir, game_player_play_id, x, y,
-                             frame_id, ball_land_x, ball_land_y,
-                             num_frames_output, num_frames)) %>% data.matrix(), 
+xg_train_df = curr_train %>% select(-c(game_player_play_id, game_play_id, 
+                                       x, y, frame_id, ball_land_x, ball_land_y, 
+                                       num_frames_output, num_frames))
+
+dir_xg = xgboost(data =  data.matrix(xg_train_df[,-1]), 
                  label = curr_train$dir,
-                 nrounds = 100, print_every_n = 10)
+                 nrounds = 200, print_every_n = 10)
 
-speed_xg = xgboost(data =  curr_train %>% 
-                     select(-c(s, game_player_play_id, x, y,
-                               frame_id, ball_land_x, ball_land_y,
-                               num_frames_output, num_frames)) %>% data.matrix(), 
+speed_xg = xgboost(data =  data.matrix(xg_train_df[,-2]), 
                    label = curr_train$s,
-                   nrounds = 100, print_every_n = 10)
+                   nrounds = 200, print_every_n = 10)
 
-acc_xg = xgboost(data = curr_train %>% 
-                   select(-c(a, game_player_play_id, x, y,
-                             frame_id, ball_land_x, ball_land_y,
-                             num_frames_output, num_frames)) %>% data.matrix(), 
+acc_xg = xgboost(data =  data.matrix(xg_train_df[,-3]), 
                  label = curr_train$a,
-                 nrounds = 100, print_every_n = 10)
+                 nrounds = 200, print_every_n = 10)
 
 #feature importance
 xgb.importance(model = dir_xg)
@@ -244,7 +240,7 @@ curr_test = curr_test %>%
 #or maybe filter out the first few frames in each play
 
 #for testing
-#curr_test = curr_test[1:20,]
+#curr_test = curr_test[1:1000,]
 
 #storing restuls
 results_pred = list()
@@ -265,15 +261,15 @@ for (i in 1:nrow(curr_test)) {
     pred_y = curr_row$y + sin(((90 - curr_row$dir) %% 360)*pi/180)*pred_dist_diff
     
     #predict dir, s, a
-    pred_dir = predict(dir_xg, curr_row %>% select(-c(dir, game_player_play_id, x, y,
-                                                       frame_id, ball_land_x, ball_land_y,
-                                                       num_frames_output, num_frames)) %>% data.matrix())
-    pred_s = predict(speed_xg, curr_row %>% select(-c(s, game_player_play_id, x, y,
-                                                      frame_id, ball_land_x, ball_land_y,
-                                                      num_frames_output, num_frames)) %>% data.matrix())
-    pred_a = predict(acc_xg, curr_row %>% select(-c(a, game_player_play_id, x, y,
-                                                    frame_id, ball_land_x, ball_land_y,
-                                                    num_frames_output, num_frames)) %>% data.matrix())
+    xg_pred_df = curr_row %>%  #row to predict on
+      select(-c(game_player_play_id, game_play_id, x, y,
+                frame_id, ball_land_x, ball_land_y,
+                num_frames_output, num_frames)) 
+    
+    pred_dir = predict(dir_xg, data.matrix(xg_pred_df[,-1]))
+    pred_s = predict(speed_xg, data.matrix(xg_pred_df[,-2]))
+    pred_a = predict(acc_xg, data.matrix(xg_pred_df[,-3]))
+    
   } else {
     prev_row = results_pred[[i-1]]
     
@@ -317,15 +313,14 @@ for (i in 1:nrow(curr_test)) {
     
     
     #predict dir, s, a
-    pred_dir = predict(dir_xg, curr_row %>% select(-c(dir, game_player_play_id, x, y,
-                                                      frame_id, ball_land_x, ball_land_y,
-                                                      num_frames_output, num_frames)) %>% data.matrix())
-    pred_s = predict(speed_xg, curr_row %>% select(-c(s, game_player_play_id, x, y,
-                                                      frame_id, ball_land_x, ball_land_y,
-                                                      num_frames_output, num_frames)) %>% data.matrix())
-    pred_a = predict(acc_xg, curr_row %>% select(-c(a, game_player_play_id, x, y,
-                                                    frame_id, ball_land_x, ball_land_y,
-                                                    num_frames_output, num_frames)) %>% data.matrix())
+    xg_pred_df = curr_row %>% #row to predict on
+      select(-c(game_player_play_id, game_play_id, x, y,
+                frame_id, ball_land_x, ball_land_y,
+                num_frames_output, num_frames))
+    
+    pred_dir = predict(dir_xg, data.matrix(xg_pred_df[,-1]))
+    pred_s = predict(speed_xg, data.matrix(xg_pred_df[,-2]))
+    pred_a = predict(acc_xg, data.matrix(xg_pred_df[,-3]))
     
     #update the remaining features that rely on predicted dir, s, a
     
@@ -358,32 +353,54 @@ results_pred = results_pred %>%
   mutate(true_x = curr_test$x,
          true_y = curr_test$y)
 
-group_id = 1
+group_id = 2
 
-results_pred %>% 
+results_pred_single_play = results_pred %>% 
   group_by(game_player_play_id) %>%
   filter(cur_group_id() == group_id) %>%
   ungroup() %>%
-  select(x, true_x, y, true_y, dir, s, a) %>% print(n = 50)
+  select(game_player_play_id, frame_id, x, true_x, y, true_y, dir, pred_dir, s, pred_s, a, pred_a) %>% 
+  rename(pred_x = x, pred_y = y)
+results_pred_single_play
+
+#plot_player_movement(unique(results_pred_single_play$game_player_play_id))
+#game_player_play_id 11 def a defense, running away from ball after it's thrown?
+
+plot_player_movement_pred(group_id = unique(results_pred_single_play$game_player_play_id),
+                          group_id_preds = results_pred_single_play %>% select(frame_id, pred_x, pred_y))
+
+#now plot multiple players on same play with predictions
+multi_player_pred_single_play = results_pred %>% 
+  group_by(game_play_id) %>%
+  filter(cur_group_id() == group_id) %>%
+  ungroup() %>%
+  select(game_play_id, game_player_play_id, frame_id, x, true_x, y, true_y, dir, pred_dir, s, pred_s, a, pred_a) %>% 
+  rename(pred_x = x, pred_y = y)
+multi_player_pred_single_play
+
+multi_player_movement(group_id = unique(multi_player_pred_single_play$game_play_id))
+multi_player_movement_pred(group_id = unique(multi_player_pred_single_play$game_play_id),
+                           group_id_preds = multi_player_pred_single_play %>% select(game_player_play_id, frame_id, pred_x, pred_y))
 
 
-#predicted position vs actual position
-plot_df = results_pred %>%  
-  group_by(game_player_play_id) %>%
-  filter(cur_group_id() == group_id,
-         throw == "post") %>%
-  pivot_longer(cols = c(x, y, true_x, true_y),
-               names_to = c("obs", ".value"),
-               names_pattern = "(true_)?(.*)") %>%
-  mutate(obs = ifelse(obs == "", "Predicted", "True"))
 
-#plot
-ggplot(plot_df, mapping = aes(x = x, y = y, colour = obs, label = frame_id)) + 
-  geom_point() +
-  geom_text_repel(data = plot_df %>%filter(obs == "True Position")) +
-  scale_x_continuous(n.breaks = 20) +
-  scale_y_continuous(n.breaks = 20) +
-  theme_bw()
+# #predicted position vs actual position
+# plot_df = results_pred %>%  
+#   group_by(game_player_play_id) %>%
+#   filter(cur_group_id() == group_id,
+#          throw == "post") %>%
+#   pivot_longer(cols = c(x, y, true_x, true_y),
+#                names_to = c("obs", ".value"),
+#                names_pattern = "(true_)?(.*)") %>%
+#   mutate(obs = ifelse(obs == "", "Predicted", "True"))
+# 
+# #plot
+# ggplot(plot_df, mapping = aes(x = x, y = y, colour = obs, label = frame_id)) + 
+#   geom_point() +
+#   #geom_text_repel() +
+#   scale_x_continuous(n.breaks = 20) +
+#   scale_y_continuous(n.breaks = 20) +
+#   theme_bw()
 
 
 
@@ -398,15 +415,13 @@ results_rmse = results_pred %>%
 results_rmse
 
 #plot
-results_rmse %>% 
+rmse_boxplot = results_rmse %>% 
   ggplot(mapping = aes(y = rmse)) +
   geom_boxplot() +
   theme_bw()
+rmse_boxplot
 
-results_rmse %>% 
-  ggplot(mapping = aes(y = rmse)) +
-  geom_boxplot() +
-  theme_bw() + ylim(c(0, 5))
+rmse_boxplot + ylim(c(0, 5))
 
 #across entire dataset
 results_pred %>% 
@@ -414,7 +429,7 @@ results_pred %>%
   summarise(rmse = get_rmse(true_x = true_x, true_y = true_y,
                             pred_x = x, pred_y = y))
 
-#1.73
+#0.94
 
 
 
