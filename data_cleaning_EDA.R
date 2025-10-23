@@ -243,8 +243,8 @@ train_calcs = train %>%
   group_by(game_id, nfl_id, play_id) %>%
   mutate(game_player_play_id = cur_group_id()) %>% #get game_player_play_id
   #first calculate s, a, dir from true values of x,y values
-  mutate(x_diff = lead(x, n = lead_frames) - lag(x, n = lag_frames, default = NA), #the difference in x direction from previous frame in yards
-         y_diff = lead(y, n = lead_frames) - lag(y, n = lag_frames, default = NA), #the difference in y direction from previous frame in yards
+  mutate(prev_x_diff = lead(x, n = lead_frames) - lag(x, n = lag_frames, default = NA), #the difference in x direction from previous frame in yards
+         prev_y_diff = lead(y, n = lead_frames) - lag(y, n = lag_frames, default = NA), #the difference in y direction from previous frame in yards
          dist_diff = sqrt(x_diff^2 + y_diff^2), #distance travelled from previous frame in yards
          est_speed = dist_diff/((window_size)/10), #yards/second (1 frame is 0.1 seconds)
          est_acc_vector = (lead(est_speed, n = lead_frames) - lag(est_speed, n = lag_frames))/((window_size)/10), #this has directions (negative accelerations)
