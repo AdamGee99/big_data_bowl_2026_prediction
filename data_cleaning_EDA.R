@@ -252,7 +252,11 @@ train_calcs = train %>%
          est_dir = get_dir(x_diff = x_diff, y_diff = y_diff),
          #distance between current x,y and ball land x,y
          ball_land_diff_x = ball_land_x - x,
-         ball_land_diff_y = ball_land_y - y
+         ball_land_diff_y = ball_land_y - y,
+         prev_s_diff = est_speed - lag(est_speed), #difference in speed from previous to current frame
+         prev_a_diff = est_acc_vector - lag(est_acc_vector), #difference in acc from previous to current frame
+         fut_s_diff = lead(est_speed) - est_speed, #difference in speed from current to future frame
+         fut_a_diff = lead(est_acc_vector) - est_acc_vector #difference in acc from current to future frame
          ) %>%
   ungroup()
   
@@ -261,8 +265,10 @@ train_calcs = train %>%
 train_derived = train_calcs %>% 
   group_by(game_player_play_id) %>%
   #other derived covariates
-  mutate(dir_diff_pos = (est_dir - lag(est_dir)) %% 360, #change in direction from previous frame - positive direction
-         dir_diff_neg = (-(est_dir - lag(est_dir))) %% 360, #change in direction from previous frame - negative direction
+  mutate(prev_dir_diff_pos = (est_dir - lag(est_dir)) %% 360, #change in dir from previous to current frame - positive direction
+         prev_dir_diff_neg = (-(est_dir - lag(est_dir))) %% 360, #change in dir from previous to current frame - negative direction
+         fut_dir_diff_pos = (lead(est_dir) - est_dir) %% 360, #change in dir from current to future frame - positive direction
+         fut_dir_diff_neg = (-(lead(est_dir) - est_dir)) %% 360, #change in dir from current to future frame - negative direction
          #the direction needed from current point to go to the ball landing point
          curr_ball_land_dir = get_dir(x_diff = ball_land_x - x, y_diff = ball_land_y - y),
          ball_land_dir_diff_pos = (est_dir - curr_ball_land_dir) %% 360,
@@ -273,15 +279,19 @@ train_derived = train_calcs %>%
            prop_play_complete <= 0.25 ~ "0-0.25",
            prop_play_complete > 0.25 & prop_play_complete <= 0.5 ~ "0.25-0.5",
            prop_play_complete > 0.5 & prop_play_complete <= 0.75 ~ "0.5-0.75",
-           prop_play_complete > 0.75 ~ "0.75-1",
+           prop_play_complete > 0.75 ~ "0.75-1"
          )) %>%
   ungroup() %>%
   rowwise() %>%
-  mutate(dir_diff = ifelse(dir_diff_pos <= dir_diff_neg, dir_diff_pos, -dir_diff_neg), #change in direction between current frame and previous frame
-         #vectorized (has direction)
-         #the difference in current direction the player is heading and the direction they need to go to to reach ball land (x,y)
+  mutate(#vectorized change in direction between previous and current frame
+         prev_dir_diff = ifelse(prev_dir_diff_pos <= prev_dir_diff_neg, prev_dir_diff_pos, -prev_dir_diff_neg), 
+         #vectorized change in direction between current and future frame
+         fut_dir_diff = ifelse(fut_dir_diff_pos <= fut_dir_diff_neg, fut_dir_diff_pos, -fut_dir_diff_neg),
+         #difference in current direction of player and direction needed to go to to reach ball land (x,y)
          ball_land_dir_diff = ifelse(ball_land_dir_diff_pos <= ball_land_dir_diff_pos, -ball_land_dir_diff_neg)) %>%
-  select(-c(dir_diff_pos, dir_diff_neg, ball_land_dir_diff_pos, ball_land_dir_diff_neg)) %>%
+  select(-c(prev_dir_diff_pos, prev_dir_diff_neg, 
+            fut_dir_diff_pos, fut_dir_diff_neg, 
+            ball_land_dir_diff_pos, ball_land_dir_diff_neg)) %>%
   ungroup()
 
 #' in the above step, any direction diff is always the minimum of the positive or the negative direction
