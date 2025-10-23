@@ -198,6 +198,8 @@ multi_player_movement = function(group_id) {
     scale_colour_identity() + 
     scale_shape_manual(values = c(19, 1)) + #hollow is pre throw, filled is post throw
     geom_point(mapping = aes(x = ball_land_x, y = ball_land_y), colour = "red", size = 4) +
+    scale_x_continuous(n.breaks = 10) +
+    scale_y_continuous(n.breaks = 10) +
     labs(title = paste0("Game: ", game_id, ", Play: ", play_id)) +
     theme_bw() +
     guides(shape = "none")
@@ -234,6 +236,8 @@ multi_player_movement_pred = function(group_id, group_id_preds) {
     geom_point(mapping = aes(x = pred_x, y = pred_y, fill = "Predicted"), colour = "orange", size = 2.5) +
     scale_fill_manual(name = "", values = c("True" = 16, "Ball Land" = 16, "Predicted" = 16)) +
     labs(title = paste0("Game: ", game_id, ", Play: ", play_id)) +
+    scale_x_continuous(n.breaks = 10) +
+    scale_y_continuous(n.breaks = 10) +
     theme_bw() +
     guides(colour = "none", shape = "none")
 }
