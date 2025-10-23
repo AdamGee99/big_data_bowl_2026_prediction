@@ -230,11 +230,18 @@ wrap_plots(list(plot_player_movement(group_id = group_id),
 #'  -distance where the player currently is to where the ball will land
 #'  -proportion of play complete, standardizes frame ID to be all on the same scale
 
+lead_frames = 0
+lag_frames = 1
+window_size = lag_frames + lead_frames
+
 #first calculate estimated s, a, dir at each frame
 train_calcs = train %>%
   filter(player_to_predict) %>%
+  group_by(game_id, play_id) %>%
+  mutate(game_play_id = cur_group_id()) %>% #get game_play_id
+  ungroup() %>%
   group_by(game_id, nfl_id, play_id) %>%
-  mutate(game_player_play_id = cur_group_id()) %>% #add group_ids
+  mutate(game_player_play_id = cur_group_id()) %>% #get game_player_play_id
   #first calculate s, a, dir from true values of x,y values
   mutate(x_diff = lead(x, n = lead_frames) - lag(x, n = lag_frames, default = NA), #the difference in x direction from previous frame in yards
          y_diff = lead(y, n = lead_frames) - lag(y, n = lag_frames, default = NA), #the difference in y direction from previous frame in yards
