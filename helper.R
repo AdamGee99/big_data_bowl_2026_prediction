@@ -164,7 +164,7 @@ plot_player_movement_pred = function(group_id, group_id_preds) {
     scale_colour_gradient(low = "black", high = "green") +
     scale_shape_manual(values = c(19, 1)) + #hollow is pre throw, filled is post throw
     geom_point(mapping = aes(x = ball_land_x, y = ball_land_y), colour = "red", size = 4) +
-    geom_point(mapping = aes(x = pred_x, y = pred_y), colour = "orange") +
+    geom_point(mapping = aes(x = pred_x, y = pred_y), colour = "orange", size = 2.5) +
     labs(title = paste0("Game: ", game_id, ", Play: ", play_id, ", Player ID: ", nfl_id)) +
     theme_bw() +
     guides(colour = "none", shape = "none")
@@ -172,7 +172,7 @@ plot_player_movement_pred = function(group_id, group_id_preds) {
 
 
 #' function now plotting multiple players on same play
-multi_player_movement = function(group_id) {
+multi_player_movement_pred = function(group_id) {
   plot_df = train %>% 
     filter(player_to_predict) %>% #filter for only players that were targeted
     group_by(game_id, play_id) %>% 
@@ -193,6 +193,39 @@ multi_player_movement = function(group_id) {
     scale_colour_identity() + 
     scale_shape_manual(values = c(19, 1)) + #hollow is pre throw, filled is post throw
     geom_point(mapping = aes(x = ball_land_x, y = ball_land_y), colour = "red", size = 4) +
+    labs(title = paste0("Game: ", game_id, ", Play: ", play_id)) +
+    theme_bw() +
+    guides(shape = "none")
+}
+
+
+#' same as above but now with predictions
+#' need to have predictions first
+#' group_id_preds is a df with the frames as a column and pred_x, pred_y as the other two columns
+multi_player_movement_pred = function(group_id, group_id_preds) {
+  plot_df = train %>% 
+    filter(player_to_predict) %>% #filter for only players that were targeted
+    group_by(game_play_id) %>% 
+    filter(cur_group_id() == group_id) %>% #filter for a single play
+    select(game_id, play_id, game_play_id, game_player_play_id, frame_id, 
+           x, y, ball_land_x, ball_land_y, throw, player_side, player_name) %>%
+    mutate(colour = ifelse( #add colours depending on offense or defense
+      player_side == "Offense", 
+      col_numeric(c("black", "green"), domain = range(frame_id))(frame_id),
+      col_numeric(c("black", "blue"), domain = range(frame_id))(frame_id)
+    )) %>% 
+    ungroup() %>%
+    left_join(group_id_preds, by = c("game_player_play_id", "frame_id"))
+  game_id = plot_df$game_id %>% unique()
+  play_id = plot_df$play_id %>% unique()
+  
+  #plot 
+  ggplot(data = plot_df, mapping = aes(x = x, y = y, colour = colour, shape = throw)) + #plot the movement
+    geom_point(size = 3) +
+    scale_colour_identity() + 
+    scale_shape_manual(values = c(19, 1)) + #hollow is pre throw, filled is post throw
+    geom_point(mapping = aes(x = ball_land_x, y = ball_land_y), colour = "red", size = 4) +
+    geom_point(mapping = aes(x = pred_x, y = pred_y), colour = "orange", size = 2.5) +
     labs(title = paste0("Game: ", game_id, ", Play: ", play_id)) +
     theme_bw() +
     guides(shape = "none")
