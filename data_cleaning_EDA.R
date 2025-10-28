@@ -46,12 +46,12 @@ str(train_Y) #nothing to change
 train_X = train_X %>% mutate(throw = "pre")
 train_Y = train_Y %>% mutate(throw = "post")
 
-#the features that are constant for a plyaer across a play
+#the features that are constant for a player across a play
 stable_features = train_X %>% 
   group_by(game_id, nfl_id, play_id) %>%
   select(player_to_predict, play_direction, absolute_yardline_number, player_name, player_height, 
          player_weight, player_birth_date, player_position, player_side, player_role, ball_land_x, ball_land_y) %>%
-  slice(1)
+  dplyr::slice(1) 
 
 train = train_X %>% 
   filter(player_to_predict) %>% #filter for only players that were targeted
@@ -79,6 +79,7 @@ train = train_X %>%
   ungroup()
   
 head(train)
+rm(train_X, train_Y)
 #' speed is in yards/s, acceleration is in yards/s^2, 
 #' direction is angle of player motion in degrees, orientation is orientation of player in degrees (these might be hard to calculate)
 
@@ -156,25 +157,11 @@ plot_dir(group_id = 432, lag_frames = 1, lead_frames = 0) #using no future data
 
 
 #first lets visualize the player's movements
-game_ids = train$game_id %>% unique() #272 games
-nfl_ids = train$nfl_id %>% unique() #1384 player ids
+train$game_id %>% unique() %>% length() #272 games
+train$nfl_id %>% unique() %>% length() #1384 player ids
 
 plot_player_movement(group_id = 1)
 plot_player_movement(group_id = 2)
-
-# #plotting a grid 
-# plots_1 = lapply(1:9, plot_player_movement)
-# plots_2 = lapply(10:18, plot_player_movement)
-# plots_3 = lapply(19:27, plot_player_movement)
-# 
-# grid.arrange(grobs = plots_1, ncol = 3, nrow = 3)
-# grid.arrange(grobs = plots_2, ncol = 3, nrow = 3)
-# grid.arrange(grobs = plots_3, ncol = 3, nrow = 3)
-# 
-# num_plots = 16
-# grid.arrange(grobs = lapply(1:num_plots, plot_player_movement),
-#              ncol = ceiling(sqrt(num_plots)),
-#              nrow = ceiling(sqrt(num_plots)))
 
 multi_player_movement(1)
 
@@ -186,7 +173,6 @@ wrap_plots(lapply(1:num_plots, multi_player_movement),
 #blue is defense, green is offense
 
 #filtering for all players in play gives interesting results too 
-
 
 
 
@@ -230,77 +216,14 @@ wrap_plots(list(plot_player_movement(group_id = group_id),
 #'  -distance where the player currently is to where the ball will land
 #'  -proportion of play complete, standardizes frame ID to be all on the same scale
 
-lead_frames = 0
-lag_frames = 1
-window_size = lag_frames + lead_frames
+train_derived = est_kinematics(train) %>% #add estimated direction, speed, acceleration
+  change_in_kinematics() %>% #add change in previous -> current and current -> next frame in direction, speed, acceleration
+  derived_features() #add derived features
 
-#first calculate estimated s, a, dir at each frame
-train_calcs = train %>%
-  filter(player_to_predict) %>%
-  group_by(game_id, play_id) %>%
-  mutate(game_play_id = cur_group_id()) %>% #get game_play_id
-  ungroup() %>%
-  group_by(game_id, nfl_id, play_id) %>%
-  mutate(game_player_play_id = cur_group_id()) %>% #get game_player_play_id
-  #first calculate s, a, dir from true values of x,y values
-  mutate(prev_x_diff = lead(x, n = lead_frames) - lag(x, n = lag_frames, default = NA), #the difference in x direction from previous frame in yards
-         prev_y_diff = lead(y, n = lead_frames) - lag(y, n = lag_frames, default = NA), #the difference in y direction from previous frame in yards
-         dist_diff = sqrt(x_diff^2 + y_diff^2), #distance travelled from previous frame in yards
-         est_speed = dist_diff/((window_size)/10), #yards/second (1 frame is 0.1 seconds)
-         est_acc_vector = (lead(est_speed, n = lead_frames) - lag(est_speed, n = lag_frames))/((window_size)/10), #this has directions (negative accelerations)
-         est_acc_scalar = abs(est_acc_vector),
-         est_dir = get_dir(x_diff = x_diff, y_diff = y_diff),
-         #distance between current x,y and ball land x,y
-         ball_land_diff_x = ball_land_x - x,
-         ball_land_diff_y = ball_land_y - y,
-         prev_s_diff = est_speed - lag(est_speed), #difference in speed from previous to current frame
-         prev_a_diff = est_acc_vector - lag(est_acc_vector), #difference in acc from previous to current frame
-         fut_s_diff = lead(est_speed) - est_speed, #difference in speed from current to future frame
-         fut_a_diff = lead(est_acc_vector) - est_acc_vector #difference in acc from current to future frame
-         ) %>%
-  ungroup()
-  
-
-#now add the derived variables
-train_derived = train_calcs %>% 
-  group_by(game_player_play_id) %>%
-  #other derived covariates
-  mutate(prev_dir_diff_pos = (est_dir - lag(est_dir)) %% 360, #change in dir from previous to current frame - positive direction
-         prev_dir_diff_neg = (-(est_dir - lag(est_dir))) %% 360, #change in dir from previous to current frame - negative direction
-         fut_dir_diff_pos = (lead(est_dir) - est_dir) %% 360, #change in dir from current to future frame - positive direction
-         fut_dir_diff_neg = (-(lead(est_dir) - est_dir)) %% 360, #change in dir from current to future frame - negative direction
-         #the direction needed from current point to go to the ball landing point
-         curr_ball_land_dir = get_dir(x_diff = ball_land_x - x, y_diff = ball_land_y - y),
-         ball_land_dir_diff_pos = (est_dir - curr_ball_land_dir) %% 360,
-         ball_land_dir_diff_neg = (-(est_dir - curr_ball_land_dir)) %% 360,
-         dist_ball_land = get_dist(x_diff = ball_land_x - x, y_diff = ball_land_y - y), #the distance where the player currently is to where the ball will land
-         prop_play_complete = frame_id/max(frame_id), #proportion of play complete - standardizes frame ID
-         prop_play_complete_bin = case_when( #bin it into quarters mainly for plotting
-           prop_play_complete <= 0.25 ~ "0-0.25",
-           prop_play_complete > 0.25 & prop_play_complete <= 0.5 ~ "0.25-0.5",
-           prop_play_complete > 0.5 & prop_play_complete <= 0.75 ~ "0.5-0.75",
-           prop_play_complete > 0.75 ~ "0.75-1"
-         )) %>%
-  ungroup() %>%
-  rowwise() %>%
-  mutate(#vectorized change in direction between previous and current frame
-         prev_dir_diff = ifelse(prev_dir_diff_pos <= prev_dir_diff_neg, prev_dir_diff_pos, -prev_dir_diff_neg), 
-         #vectorized change in direction between current and future frame
-         fut_dir_diff = ifelse(fut_dir_diff_pos <= fut_dir_diff_neg, fut_dir_diff_pos, -fut_dir_diff_neg),
-         #difference in current direction of player and direction needed to go to to reach ball land (x,y)
-         ball_land_dir_diff = ifelse(ball_land_dir_diff_pos <= ball_land_dir_diff_pos, -ball_land_dir_diff_neg)) %>%
-  select(-c(prev_dir_diff_pos, prev_dir_diff_neg, 
-            fut_dir_diff_pos, fut_dir_diff_neg, 
-            ball_land_dir_diff_pos, ball_land_dir_diff_neg)) %>%
-  ungroup()
-
-#' in the above step, any direction diff is always the minimum of the positive or the negative direction
-#' so the max difference in direction is 180 deg, not 360
-
-
+colnames(train_derived)
 
 #save cleaned data
-#write.csv(train_derived, file = here("data", "train_clean.csv"), row.names = FALSE)
+write.csv(train_derived, file = here("data", "train_clean.csv"), row.names = FALSE)
 
 
 
@@ -322,41 +245,21 @@ train_derived %>%
 
 #' acc vs pre-post throw
 train_derived %>% 
-  ggplot(mapping = aes(x = factor(throw), y = est_acc_scalar)) +
-  geom_boxplot() + theme_bw() + ylim(c(0, 15))
+  ggplot(mapping = aes(x = factor(throw), y = est_acc)) +
+  geom_boxplot() + theme_bw() + ylim(c(-10, 10))
 #acceleration more mixed, slightly higher pre throw actually
 #makes sense, the player is usually running full speed after ball is in the air
 
 #' ball_land_dir_diff vs pre-post throw
 train_derived %>%
-  ggplot(mapping = aes(x = factor(throw), y = ball_land_dir_diff)) +
+  ggplot(mapping = aes(x = factor(throw), y = abs(ball_land_dir_diff))) +
   geom_boxplot() + theme_bw()
 #difference in direction to ball land smaller post throw, makes sense
 
 
-#' now try over proportion of play complete
-#' speed
-train_derived %>% 
-  ggplot(mapping = aes(x = factor(prop_play_complete_bin), y = est_speed)) +
-  geom_boxplot() + theme_bw()
-#speed increases throughout play
-
-#' acc vs pre-post throw
-train_derived %>% 
-  ggplot(mapping = aes(x = factor(prop_play_complete_bin), y = est_acc_scalar)) +
-  geom_boxplot() + theme_bw() + ylim(c(0, 15))
-#mixed again
-
-#' ball_land_dir_diff vs pre-post throw
-train_derived %>%
-  ggplot(mapping = aes(x = factor(prop_play_complete_bin), y = ball_land_dir_diff)) +
-  geom_boxplot() + theme_bw()
-#difference in direction to ball land getting smaller
-
-
 #' speed vs direction change
 train_derived %>%
-  ggplot(mapping = aes(x = dir_diff, y = est_speed)) +
+  ggplot(mapping = aes(x = prev_dir_diff, y = est_speed)) +
   geom_scattermore() +
   theme_bw() 
 #scale_x_continuous(limits = c(0, 50)) +
@@ -371,7 +274,7 @@ train_derived %>%
 
 #' acceleration vs direction change
 train_derived %>%
-  ggplot(mapping = aes(x = dir_diff, y = est_acc_vector)) +
+  ggplot(mapping = aes(x = prev_dir_diff, y = est_acc)) +
   geom_scattermore() +
   scale_y_continuous(limits = c(-25, 25)) +
   theme_bw() 
@@ -494,6 +397,135 @@ train_derived %>%
 #' none of these are linear relationships, distributions are weird and so many interactions... 
 #' non-parametric def the way to go
 
+
+
+############################################### Kinematics Part ############################################### 
+
+
+#' use true s, a, dir to predict next frame
+#' if you know the player's true speed, acc, direction at frame i, how well can we predict next frame assuming they are constant?
+#' trying to show that if you know the true dir,s,a, then predicting the next x,y is trivial
+#' 
+
+#add predictions to train
+train_pred = train %>%
+  #calculate position in next frame using true s, a, dir
+  mutate(pred_dist_diff = est_speed*0.1 + est_acc_vector*0.5*0.1^2, #using speed + acc
+         pred_dist_diff_2 = est_speed*0.1, #using speed only
+         pred_x_sa = x + cos(((90 - est_dir) %% 360)*pi/180)*pred_dist_diff,
+         pred_y_sa = y + sin(((90 - est_dir) %% 360)*pi/180)*pred_dist_diff,
+         pred_x_s = x + cos(((90 - est_dir) %% 360)*pi/180)*pred_dist_diff_2,
+         pred_y_s = y + sin(((90 - est_dir) %% 360)*pi/180)*pred_dist_diff_2, #make sure you convert the angle back to original coordinate system, since using trig functions
+  ) %>%
+  #shift the predictions to the leading row (were predicting the next frame)
+  #this way were only using current/past data to predict future
+  group_by(game_id, nfl_id, play_id) %>%
+  mutate(across(starts_with("pred_"), lag)) %>%
+  ungroup()
+
+#' the predicted position from the next frame is the exact same movement from the previous frame
+#' that is, the player is going the same speed (travels the same distance) in the same direction
+
+#direction of previous frame vs direction of next frame
+group_id = 1 #single player on single play
+plot_df = train_pred %>% 
+  filter(game_player_play_id == group_id)
+
+#plot direction
+ggplot(data = plot_df, aes(x = est_dir, y = lead(est_dir))) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0) +
+  scale_x_continuous(limits = c(0, 360), breaks = c(0, 90, 180, 270, 360)) +
+  scale_y_continuous(limits = c(0, 360), breaks = c(0, 90, 180, 270, 360)) +
+  labs(x = "Direction in Current Frame", y = "Direction in Next Frame") +
+  theme_bw()
+
+#clearly this assumption doesn't make sense, this would mean player is travelling in straight line the whole time
+#same with speed and acceleration, they aren't the same throughout the play
+
+ggplot(data = plot_df, aes(x = est_speed, y = lead(est_speed))) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0) +
+  labs(x = "Speed in Current Frame", y = "Speed in Next Frame") +
+  theme_bw()
+
+ggplot(data = plot_df, aes(x = est_acc_vector, y = lead(est_acc_vector))) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0) +
+  labs(x = "Acceleration in Current Frame", y = "Acceleration in Next Frame") +
+  theme_bw()
+
+
+#' lets see how well it can predict using the true x,y coordinates
+
+#predicted position vs actual position
+plot_df %>% 
+  rename(pred_x = pred_x_s, pred_y = pred_y_s) %>%
+  pivot_longer(cols = c(x, y, pred_x, pred_y),
+               names_to = c("obs", ".value"),
+               names_pattern = "(pred_)?(.*)") %>%
+  mutate(obs = ifelse(obs == "", "Recorded", "Estimated")) %>%
+  ggplot(mapping = aes(x = x, y = y, colour = obs)) + 
+  geom_point() +
+  #geom_text_repel(aes(label = frame_id)) +
+  scale_x_continuous(n.breaks = 20) +
+  scale_y_continuous(n.breaks = 20) +
+  theme_bw()
+
+
+#some minor differences between using s only vs s + a
+
+
+#get predictions post-throw
+test_preds = plot_df %>% filter(throw == "post") %>% select(frame_id, x, y, pred_x_sa, pred_y_sa, pred_x_s, pred_y_s)
+
+#speed + acceleration
+get_rmse(true_x = test_preds$x, true_y = test_preds$y, 
+         pred_x = test_preds$pred_x_sa, pred_y = test_preds$pred_y_sa)
+#speed only
+get_rmse(true_x = test_preds$x, true_y = test_preds$y, 
+         pred_x = test_preds$pred_x_s, pred_y = test_preds$pred_y_s)
+
+
+#summarise rmse across all players
+#compare if using acceleration is better or not
+train_pred_summary = train_pred %>% 
+  filter(throw == "post") %>%
+  group_by(game_id, nfl_id, play_id) %>%
+  summarise(rmse_s = get_rmse(true_x = x, true_y = y,
+                              pred_x = pred_x_s, pred_y = pred_y_s),
+            rmse_sa = get_rmse(true_x = x, true_y = y,
+                               pred_x = pred_x_sa, pred_y = pred_y_sa))
+
+#plot
+train_pred_summary %>% 
+  pivot_longer(cols = starts_with("rmse"), 
+               names_to = "calc",
+               values_to = "value") %>%
+  ggplot(mapping = aes(x = calc, y = value)) +
+  geom_boxplot() +
+  theme_bw()
+
+
+#overall using speed + acceleration gives tiny better rmse on average
+train_pred_summary$rmse_sa %>% mean()
+train_pred_summary$rmse_s %>% mean()
+
+#rmse over entire dataset
+train_pred %>% 
+  filter(throw == "post") %>% 
+  summarise(rmse_s = get_rmse(true_x = x, true_y = y,
+                              pred_x = pred_x_s, pred_y = pred_y_s),
+            rmse_sa = get_rmse(true_x = x, true_y = y,
+                               pred_x = pred_x_sa, pred_y = pred_y_sa))
+
+#' including speed + acceleration better
+
+
+#' this confirms that getting good predictions is dependent on getting good speed, acceleration, and direction at each frame
+#' but getting good speed, acceleration, and direction depends on good location
+#' its circular
+#' I think the way to go is to iterate by conditioning on eachother until convergance, like markov chain, gibbs
 
 
 
