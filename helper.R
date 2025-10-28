@@ -116,7 +116,7 @@ derived_features = function(train_df) {
     ungroup() %>%
     rowwise() %>%
     mutate(#difference in current direction of player and direction needed to go to to reach ball land (x,y)
-      ball_land_dir_diff = ifelse(ball_land_dir_diff_pos <= ball_land_dir_diff_pos, -ball_land_dir_diff_neg) #again this is min pos or neg direction
+      ball_land_dir_diff = ifelse(ball_land_dir_diff_pos <= ball_land_dir_diff_neg, ball_land_dir_diff_pos, -ball_land_dir_diff_neg) #again this is min pos or neg direction
       ) %>%
     ungroup() %>%
     select(-c(curr_ball_land_dir, ball_land_dir_diff_pos, ball_land_dir_diff_neg)) 
