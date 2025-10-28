@@ -35,6 +35,106 @@ get_rmse = function(true_x, true_y, pred_x, pred_y) {
   rmse
 }
 
+
+
+
+############################################### Feature Derivation Functions ############################################### 
+
+
+#' these functions are intended to be used in the order listed here
+
+
+#' function that takes in train df and estimates dir, s, and a
+#' df needs to have columns: player_to_predict, game_id, nfl_id, play_id, x, y
+#' the x,y here can be either the true values or the predicted values
+
+#' right now just using the previous frame only (lag = 1, lead = 0) to calculate
+est_kinematics = function(train_df) {
+  kin_df = train_df %>%
+    filter(player_to_predict) %>% 
+    group_by(game_id, play_id) %>%
+    mutate(game_play_id = cur_group_id()) %>% #game_play_id
+    ungroup() %>%
+    group_by(game_id, nfl_id, play_id) %>%
+    mutate(game_player_play_id = cur_group_id()) %>% #game_player_play_id
+    #calculate s, a, dir from true values of x,y values
+    mutate(prev_x_diff = x - lag(x), #diff in x from previous -> current frame
+           prev_y_diff = y - lag(y), #diff in y from previous -> current frame
+           est_speed = get_dist(x_diff = prev_x_diff, y_diff = prev_y_diff)/0.1, #speed over previous -> current frame
+           est_acc = (est_speed - lag(est_speed))/0.1, #acc over previous -> current frame (has direction)
+           est_dir = get_dir(x_diff = prev_x_diff, y_diff = prev_y_diff)
+           ) %>%
+    ungroup()
+  
+  kin_df
+}
+
+#' function that takes in training df and gets the previous and future change in dir, s, a
+#' the prev change can be used as a feature
+#' the future change is the response
+#' 
+#' the input df needs to have kinematics (dir, s, a) for this function to work
+change_in_kinematics = function(train_df) {
+  change_kin_df = train_df %>%
+    group_by(game_player_play_id) %>%
+    mutate(prev_dir_diff_pos = (est_dir - lag(est_dir)) %% 360, #change in dir from previous to current frame - positive direction
+           prev_dir_diff_neg = (-(est_dir - lag(est_dir))) %% 360, #change in dir from previous to current frame - negative direction
+           fut_dir_diff_pos = (lead(est_dir) - est_dir) %% 360, #change in dir from current to future frame - positive direction
+           fut_dir_diff_neg = (-(lead(est_dir) - est_dir)) %% 360, #change in dir from current to future frame - negative direction
+           prev_s_diff = est_speed - lag(est_speed), #diff in speed from previous -> current frame
+           prev_a_diff = est_acc - lag(est_acc), #diff in acc from previous -> current frame
+           fut_s_diff = lead(est_speed) - est_speed, #diff in speed from current -> next frame
+           fut_a_diff = lead(est_acc) - est_acc #diff in acc from current -> next frame
+           ) %>%
+    ungroup() %>%
+    rowwise() %>%
+    #vectorized change in direction between current and future frame
+    #this change in direction is the minimum of the positive or negative direction
+    mutate(prev_dir_diff = ifelse(prev_dir_diff_pos <= prev_dir_diff_neg, prev_dir_diff_pos, -prev_dir_diff_neg), 
+           fut_dir_diff = ifelse(fut_dir_diff_pos <= fut_dir_diff_neg, fut_dir_diff_pos, -fut_dir_diff_neg)) %>%
+    ungroup() %>%
+    select(-c(prev_dir_diff_neg, prev_dir_diff_pos, fut_dir_diff_neg, fut_dir_diff_pos))
+  
+  change_kin_df
+}
+
+
+#' function that takes in train df and calculates all our derived features
+#' df needs to have columns: 
+
+derived_features = function(train_df) {
+  derived_df = train_df %>%
+    group_by(game_player_play_id) %>%
+    mutate(ball_land_diff_x = ball_land_x - x, #dist between current x and ball land x
+           ball_land_diff_y = ball_land_y - y, #dist between current y and ball land y
+           curr_ball_land_dir = get_dir(x_diff = ball_land_x - x, y_diff = ball_land_y - y), #direction needed from current point to go to the ball landing point
+           ball_land_dir_diff_pos = (est_dir - curr_ball_land_dir) %% 360,
+           ball_land_dir_diff_neg = (-(est_dir - curr_ball_land_dir)) %% 360,
+           dist_ball_land = get_dist(x_diff = ball_land_x - x, y_diff = ball_land_y - y), #the distance where the player currently is to where the ball will land
+           prop_play_complete = frame_id/max(frame_id) #proportion of play complete - standardizes frame ID
+           ) %>%
+    ungroup() %>%
+    rowwise() %>%
+    mutate(#difference in current direction of player and direction needed to go to to reach ball land (x,y)
+      ball_land_dir_diff = ifelse(ball_land_dir_diff_pos <= ball_land_dir_diff_pos, -ball_land_dir_diff_neg) #again this is min pos or neg direction
+      ) %>%
+    ungroup() %>%
+    select(-c(curr_ball_land_dir, ball_land_dir_diff_pos, ball_land_dir_diff_neg)) 
+    
+  derived_df
+}
+
+
+
+
+
+############################################### Plotting functions ############################################### 
+
+
+
+
+
+
 #' plotting a player's speed and acceleration over a play
 #' calculation depends on number of lagging and leading frames
 plot_speed_acc = function(group_id, lag_frames, lead_frames) {
