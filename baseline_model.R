@@ -5,23 +5,12 @@ library(here)
 library(ggrepel)
 library(xgboost)
 
-############################################### TO DO ############################################### 
-
-#' Steps
-#' 1. Generate end model
-#'      -by end model, I mean final in the line of models to generate the position predictions
-#'      -this model simply predicts the player's position on the next frame using direction, speed, acceleration of current frame
-#'      -this is an exact formula, no estimation...(simple kinematics formula)
-#'      -just use the true observed direction, speed, acceleration values for now, don't worry about estimating them
-#'      -see how well this matches up with true observed values
-#'      -figure out what features are needed here (is direction, speed, acceleration all or is more neeeded? orientation?)
-#' 
-#' 
-#' 2. start developing models for the each features needed above (direction, speed, acceleration)
+############################################### Description ############################################### 
+#' predicting x,y in next frame by first updating (predicting) direction, speed, and acceleration
 
 
 
-############################################### Step 1 ############################################### 
+############################################### Baseline Model ############################################### 
 
 #import data
 train = read.csv(file = here("data", "train_clean.csv"))
@@ -31,139 +20,6 @@ source(here("helper.R"))
 #' end model is a simple kinematics formula:
 #' pos_next = pos_curr + vel_curr*0.1 + 0.5*acc_curr*(0.1^2) - 0.1 seconds between frames
 #' this is a straight line in the current direction (dir_curr)
-
-
-#' right now use true s, a, dir to predict next frame
-#' if you know the player's true speed, acc, direction at frame i, how well can we predict next frame assuming they are constant?
-#' 
-#' 
-
-#add predictions to train
-train_pred = train %>%
-  #calculate position in next frame using true s, a, dir
-  mutate(pred_dist_diff = est_speed*0.1 + est_acc_vector*0.5*0.1^2, #using speed + acc
-         pred_dist_diff_2 = est_speed*0.1, #using speed only
-         pred_x_sa = x + cos(((90 - est_dir) %% 360)*pi/180)*pred_dist_diff,
-         pred_y_sa = y + sin(((90 - est_dir) %% 360)*pi/180)*pred_dist_diff,
-         pred_x_s = x + cos(((90 - est_dir) %% 360)*pi/180)*pred_dist_diff_2,
-         pred_y_s = y + sin(((90 - est_dir) %% 360)*pi/180)*pred_dist_diff_2, #make sure you convert the angle back to original coordinate system, since using trig functions
-  ) %>%
-  #shift the predictions to the leading row (were predicting the next frame)
-  #this way were only using current/past data to predict future
-  group_by(game_id, nfl_id, play_id) %>%
-  mutate(across(starts_with("pred_"), lag)) %>%
-  ungroup()
-
-#' the predicted position from the next frame is the exact same movement from the previous frame
-#' that is, the player is going the same speed (travels the same distance) in the same direction
-
-#direction of previous frame vs direction of next frame
-group_id = 1 #single player on single play
-plot_df = train_pred %>% 
-  filter(game_player_play_id == group_id)
-
-#plot direction
-ggplot(data = plot_df, aes(x = est_dir, y = lead(est_dir))) +
-  geom_point() +
-  geom_abline(slope = 1, intercept = 0) +
-  scale_x_continuous(limits = c(0, 360), breaks = c(0, 90, 180, 270, 360)) +
-  scale_y_continuous(limits = c(0, 360), breaks = c(0, 90, 180, 270, 360)) +
-  labs(x = "Direction in Current Frame", y = "Direction in Next Frame") +
-  theme_bw()
-
-#clearly this assumption doesn't make sense, this would mean player is travelling in straight line the whole time
-#same with speed and acceleration, they aren't the same throughout the play
-
-ggplot(data = plot_df, aes(x = est_speed, y = lead(est_speed))) +
-  geom_point() +
-  geom_abline(slope = 1, intercept = 0) +
-  labs(x = "Speed in Current Frame", y = "Speed in Next Frame") +
-  theme_bw()
-
-ggplot(data = plot_df, aes(x = est_acc_vector, y = lead(est_acc_vector))) +
-  geom_point() +
-  geom_abline(slope = 1, intercept = 0) +
-  labs(x = "Acceleration in Current Frame", y = "Acceleration in Next Frame") +
-  theme_bw()
-
-
-#' lets see how well it can predict using the true x,y coordinates
-
-#predicted position vs actual position
-plot_df %>% 
-  rename(pred_x = pred_x_s, pred_y = pred_y_s) %>%
-  pivot_longer(cols = c(x, y, pred_x, pred_y),
-               names_to = c("obs", ".value"),
-               names_pattern = "(pred_)?(.*)") %>%
-  mutate(obs = ifelse(obs == "", "Recorded", "Estimated")) %>%
-  ggplot(mapping = aes(x = x, y = y, colour = obs)) + 
-  geom_point() +
-  #geom_text_repel(aes(label = frame_id)) +
-  scale_x_continuous(n.breaks = 20) +
-  scale_y_continuous(n.breaks = 20) +
-  theme_bw()
-  
-
-#some minor differences between using s only vs s + a
-
-
-#get predictions post-throw
-test_preds = plot_df %>% filter(throw == "post") %>% select(frame_id, x, y, pred_x_sa, pred_y_sa, pred_x_s, pred_y_s)
-
-#speed + acceleration
-get_rmse(true_x = test_preds$x, true_y = test_preds$y, 
-         pred_x = test_preds$pred_x_sa, pred_y = test_preds$pred_y_sa)
-#speed only
-get_rmse(true_x = test_preds$x, true_y = test_preds$y, 
-         pred_x = test_preds$pred_x_s, pred_y = test_preds$pred_y_s)
-
-
-#summarise rmse across all players
-#compare if using acceleration is better or not
-train_pred_summary = train_pred %>% 
-  filter(throw == "post") %>%
-  group_by(game_id, nfl_id, play_id) %>%
-  summarise(rmse_s = get_rmse(true_x = x, true_y = y,
-                              pred_x = pred_x_s, pred_y = pred_y_s),
-            rmse_sa = get_rmse(true_x = x, true_y = y,
-                               pred_x = pred_x_sa, pred_y = pred_y_sa))
-
-#plot
-train_pred_summary %>% 
-  pivot_longer(cols = starts_with("rmse"), 
-               names_to = "calc",
-               values_to = "value") %>%
-  ggplot(mapping = aes(x = calc, y = value)) +
-  geom_boxplot() +
-  theme_bw()
-
-
-#overall using speed + acceleration gives tiny better rmse on average
-train_pred_summary$rmse_sa %>% mean()
-train_pred_summary$rmse_s %>% mean()
-
-#rmse over entire dataset
-train_pred %>% 
-  filter(throw == "post") %>% 
-  summarise(rmse_s = get_rmse(true_x = x, true_y = y,
-                              pred_x = pred_x_s, pred_y = pred_y_s),
-            rmse_sa = get_rmse(true_x = x, true_y = y,
-                               pred_x = pred_x_sa, pred_y = pred_y_sa))
-
-#' including speed + acceleration better
-
-
-#' this confirms that getting good predictions is dependent on getting good speed, acceleration, and direction at each frame
-#' but getting good speed, acceleration, and direction depends on good location
-#' its circular
-#' I think the way to go is to iterate by conditioning on eachother until convergance, like markov chain, gibbs
-
-
-
-
-
-############################################### Baseline Model ############################################### 
-
 #' this is a simple model that can then be built upon
 #' autoregressive, predicts position in next frame from current frame
 #' need three seperate models: direction, speed, acceleration
@@ -181,44 +37,43 @@ train_pred %>%
 
 
 #modelling the future change in dir, s, a instead of the actual dir, s, a value...
-
 data_mod = train %>% 
   #order the columns
   select(fut_dir_diff, fut_s_diff, fut_a_diff, game_player_play_id, game_play_id, everything()) %>%
-  #remove NA responses
-  filter(!is.na(fut_dir_diff) & !is.na(fut_s_diff) & !is.na(fut_a_diff)) %>%
+  #add estimation to post throw
+   mutate(est_dir = ifelse(throw == "pre", dir, est_dir),
+          est_speed = ifelse(throw == "pre", s, est_speed),
+          est_acc = ifelse(throw == "pre", a, est_acc))  %>%
   #de-select unnecessary feature columns - things that can't be calculated post throw
-  select(-c(game_id, nfl_id, play_id, s, a, o, dir, player_to_predict, 
-            player_birth_date, est_acc_scalar, num_frames_output, num_frames)) %>%
-  rename(dir = est_dir, s = est_speed, a = est_acc_vector)
+  select(-c(game_id, nfl_id, play_id, o, player_to_predict, s, a, dir,
+          player_birth_date, num_frames_output, num_frames))
 
-#filter out the s,a diffs that are clearly impossible
-data_mod[,1:3] %>% summary()
-data_mod$fut_s_diff %>% quantile(probs = c(0.001, 0.999))
-data_mod$fut_a_diff %>% quantile(probs = c(0.001, 0.999))
-data_mod = data_mod %>% filter(abs(fut_s_diff) <= 1,
-                               abs(fut_a_diff) <= 11)
 
 #these have the true x,y values but that's ok
 #fitting it on true value calculations is ok, but we just can't use the true values to calculate when we actually predict
 
 #' 80% train, 20% test - by game_player_play groups
 set.seed(1999)
-n_game_player_plays = train %>% pull(game_player_play_id) %>% unique() %>% length() #46,045
+n_game_player_plays = data_mod %>% pull(game_player_play_id) %>% unique() %>% length() #46,045
 split = sample(unique(data_mod$game_player_play_id), size = round(0.8*n_game_player_plays))
-curr_train = data_mod %>% filter(game_player_play_id %in% split)
-curr_test = train %>% select(-c(dir, s, a)) %>% 
-  rename(dir = est_dir, s = est_speed, a = est_acc_vector) %>% 
-  filter(!(game_player_play_id %in% split)) %>% select(all_of(colnames(curr_train)))
+curr_train = data_mod %>% filter(game_player_play_id %in% split) %>%
+  filter(!is.na(fut_dir_diff) & !is.na(fut_s_diff) & !is.na(fut_a_diff)) #remove NA responses
+curr_test = data_mod %>% filter(!(game_player_play_id %in% split))
+
+#filter out the s,a diffs in training set that are clearly impossible
+curr_train[,1:3] %>% summary()
+curr_train$fut_s_diff %>% quantile(probs = c(0.001, 0.999), na.rm = TRUE)
+curr_train$fut_a_diff %>% quantile(probs = c(0.001, 0.999), na.rm = TRUE)
+curr_train = data_mod %>% filter(abs(fut_s_diff) <= 1,
+                               abs(fut_a_diff) <= 11)
 
 #fit models
 
 #remove all the player-specific stuff for now, just focus on kinematics and ball landing features
 xg_train_df = curr_train %>%
-  select(-c(game_player_play_id, game_play_id, frame_id, 
-            x, y, ball_land_x, ball_land_y, player_name,
-            player_height, player_weight, player_role, player_position,
-            curr_ball_land_dir, prop_play_complete_bin))
+  select(-c(game_player_play_id, game_play_id, frame_id, x, y,
+            ball_land_x, ball_land_y, player_name, player_height, 
+            player_weight, player_role, player_position))
 
 dir_xg = xgboost(data =  data.matrix(xg_train_df[,-c(1,2,3)]), 
                  label = xg_train_df$fut_dir_diff,
@@ -237,28 +92,23 @@ xgb.importance(model = dir_xg)
 xgb.importance(model = speed_xg)
 xgb.importance(model = acc_xg)
 
-
-#something might be wrong with the directions, ball_land_dir_diff should be way more important than it is
-#check to make sure the directions are working properly
-
-#now use fits on test set to predict position on future frame, then recalculate kinematics, then predict future frame, recalculate, ... repeat
+#' double check that the directions are all working properly
+#' I swear ball_land_dir_diff should be more important
 
 #just predict on post throw
 curr_test_pred = curr_test %>% 
   filter(throw == "post" | (throw == "pre" & lead(throw) == "post")) %>% #filter for post throw only
-  #mutate the unknowns to be NA to ensure the model isn't using any known data
-  mutate(true_x = x, true_y = y, true_dir = dir, true_s = s, true_a = a,
-         across(-c(game_player_play_id, game_play_id, throw, frame_id, play_direction, 
+         #mutate the unknowns to be NA to ensure the model isn't using any future known data
+         mutate(across(-c(game_player_play_id, game_play_id, throw, frame_id, play_direction, 
                    absolute_yardline_number, player_name, player_height, player_weight, 
-                   player_position, player_side, player_role, ball_land_x, ball_land_y, 
-                   true_x, true_y, true_dir, true_s, true_a, prop_play_complete, prop_play_complete_bin), 
-                ~ ifelse(throw == "pre", .x, NA)))
+                   player_position, player_side, player_role, ball_land_x, ball_land_y, prop_play_complete), 
+                ~ ifelse(throw == "pre", .x, NA))) 
 
 #what if you fit the models only on post throw?
 #or maybe filter out the first few frames in each play
 
 #for testing
-#curr_test_pred = curr_test_pred[1:500,]
+curr_test_pred = curr_test_pred[1:500,]
 
 #storing restuls
 results_pred = list()
@@ -273,10 +123,10 @@ for (i in 1:nrow(curr_test_pred)) {
   #initialize position as last observed values before throw
   if (curr_row$throw == "pre") { 
     #if last observation pre throw, predict next frame position using true observed kinematic values
-    pred_dist_diff = curr_row$s*0.1 + curr_row$a*0.5*0.1^2
+    pred_dist_diff = curr_row$est_speed*0.1 + curr_row$est_acc*0.5*0.1^2
     
-    pred_x = curr_row$x + cos(((90 - curr_row$dir) %% 360)*pi/180)*pred_dist_diff
-    pred_y = curr_row$y + sin(((90 - curr_row$dir) %% 360)*pi/180)*pred_dist_diff
+    pred_x = curr_row$x + cos(((90 - curr_row$est_dir) %% 360)*pi/180)*pred_dist_diff
+    pred_y = curr_row$y + sin(((90 - curr_row$est_dir) %% 360)*pi/180)*pred_dist_diff
     
     #predict dir, s, a
     xg_pred_df = curr_row %>%  #row to predict on
@@ -287,11 +137,9 @@ for (i in 1:nrow(curr_test_pred)) {
     pred_a_diff = predict(acc_xg, data.matrix(xg_pred_df))
     
     #predicted dir, s, a
-    pred_dir = curr_row$pred_dir = curr_row$dir + pred_dir_diff
-    pred_s = curr_row$pred_s = curr_row$s + pred_s_diff
-    pred_a = curr_row$pred_a = curr_row$a + pred_a_diff
-    
-    
+    pred_dir = curr_row$pred_dir = curr_row$est_dir + pred_dir_diff
+    pred_s = curr_row$pred_s = curr_row$est_speed + pred_s_diff
+    pred_a = curr_row$pred_a = curr_row$est_acc + pred_a_diff
     
     
     #### Do we predict x,y first, then predict dir, s, a?,
@@ -305,75 +153,57 @@ for (i in 1:nrow(curr_test_pred)) {
     # maybe theres a way to do this simultaneously...? like do it both ways, then take the average of each prediction?
     
     
-    
   } else {
     prev_row = results_pred[[i-1]]
     
     #first predict kinematics at current frame using previous frame's predicted position
-    #set current position as previous predicted position
-    curr_x = prev_row$pred_x
-    curr_y = prev_row$pred_y
-    prev_x = prev_row$x
-    prev_y = prev_row$y
+    #set current position and dir, s, a as previous prediction 
+    curr_row$x = prev_row$pred_x
+    curr_row$y = prev_row$pred_y
+    #prev_x = prev_row$x
+    #prev_y = prev_row$y
     
-    curr_row$x = curr_x
-    curr_row$y = curr_y
+    #current dir, s, a
+    curr_row$est_dir = prev_row$pred_dir
+    curr_row$est_speed = prev_row$pred_s 
+    curr_row$est_acc = prev_row$pred_a
     
     ### predict kinematics using xg models
     #update all features necessary for dir,s,a models
     
-    prev_x_diff = curr_row$prev_x_diff = curr_x - prev_x
-    prev_y_diff = curr_row$prev_y_diff = curr_y - prev_y
+    prev_curr_frame_df = prev_row %>%
+      select(-c(starts_with("pred_"))) %>% #remove the pred columns so we can bind
+      rbind(curr_row)
     
-    #current dir, s, a
-    curr_dir = prev_row$pred_dir
-    curr_s = prev_row$pred_s 
-    curr_a = prev_row$pred_a
+    # now get change in kinematics and derived features
+    prev_curr_frame_df = prev_curr_frame_df %>%
+      change_in_kinematics() %>%
+      derived_features() %>%
+      mutate(prev_x_diff = x - lag(x),
+             prev_y_diff = y - lag(y))
     
-    curr_row$dir = curr_dir
-    curr_row$s = curr_s
-    curr_row$a = curr_a
-    
-    #other features
-    prev_dir_diff_pos = (curr_row$dir - prev_row$dir) %% 360 #change in dir from previous to current frame - positive direction
-    prev_dir_diff_neg = (-(curr_row$dir - prev_row$dir)) %% 360 #change in dir from previous to current frame - negative direction
-    curr_row$prev_dir_diff = ifelse(prev_dir_diff_pos <= prev_dir_diff_neg, prev_dir_diff_pos, -prev_dir_diff_neg)
-    
-    curr_row$prev_s_diff = curr_s - prev_row$s
-    curr_row$prev_a_diff = curr_a - prev_row$a
-    
-    curr_row$prev_dist_diff = get_dist(x_diff = prev_x_diff, y_diff = prev_y_diff)
-    curr_row$curr_ball_land_dir = get_dir(x_diff = curr_row$ball_land_x - curr_x, y_diff = curr_row$ball_land_y - curr_y)
-    curr_row$dist_ball_land = get_dist(x_diff = curr_row$ball_land_x - curr_x, y_diff = curr_row$ball_land_y - curr_y)
-    
-    ball_land_dir_diff_pos = (curr_row$dir - curr_row$curr_ball_land_dir) %% 360
-    ball_land_dir_diff_neg = (-(curr_row$dir - curr_row$curr_ball_land_dir)) %% 360
-    
-    curr_row$ball_land_dir_diff = ifelse(ball_land_dir_diff_pos <= ball_land_dir_diff_pos, -ball_land_dir_diff_neg)
-    
-    curr_row$ball_land_diff_x = curr_row$ball_land_x - curr_x
-    curr_row$ball_land_diff_y = curr_row$ball_land_y - curr_y
-    
+    #manually update prop_play_complete
+    prev_curr_frame_df$prop_play_complete[2] = curr_row$prop_play_complete
     
     #predict dir, s, a
-    xg_pred_df = curr_row %>%  #row to predict on
+    xg_pred_df = prev_curr_frame_df[2,] %>%  #row to predict on
       select(all_of(dir_xg$feature_names))
     
     pred_dir_diff = predict(dir_xg, data.matrix(xg_pred_df))
     pred_s_diff = predict(speed_xg, data.matrix(xg_pred_df))
     pred_a_diff = predict(acc_xg, data.matrix(xg_pred_df))
     
-    pred_dir = curr_dir + pred_dir_diff
-    pred_s = curr_s + pred_s_diff
-    pred_a = curr_a + pred_a_diff
+    pred_dir = curr_row$est_dir + pred_dir_diff
+    pred_s = curr_row$est_speed + pred_s_diff
+    pred_a = curr_row$est_acc + pred_a_diff
     
     #update the remaining features that rely on predicted dir, s, a
     
     #finally predict next frame position
     pred_dist_diff = pred_s*0.1 + pred_a*0.5*0.1^2
     
-    pred_x = curr_x + cos(((90 - pred_dir) %% 360)*pi/180)*pred_dist_diff
-    pred_y = curr_y + sin(((90 - pred_dir) %% 360)*pi/180)*pred_dist_diff
+    pred_x = curr_row$x + cos(((90 - pred_dir) %% 360)*pi/180)*pred_dist_diff
+    pred_y = curr_row$y + sin(((90 - pred_dir) %% 360)*pi/180)*pred_dist_diff
   }
   
   #store predicted positions
@@ -396,41 +226,49 @@ for (i in 1:nrow(curr_test_pred)) {
 #' 2. predict dir,s,a first, then use future dir,s,a to predict future x,y
 #' 3. do both and take the average prediciton - do this iteratively, take the mean at every step...
 
+### another thing that would probably improve predictions:
+#' generate first predictions using only lag x,y 
+#' after you get the predictions, use those to get better estimates of dir, s, a on the current frame
+#' by calculating dir,s,a over prev_frame -> leading frame, this gives esimate of kinematics at the actual current frame
+#' 
+#' can keep doing this until convergence... 
+#' but how computationally feasible is this
+
+#the true x,y values
+true_x_y = train %>%
+  filter(!(game_player_play_id %in% split)) %>% 
+  rename(true_x = x, true_y = y) %>% 
+  select(game_player_play_id, frame_id, true_x, true_y)
 
 #bind results into df
 results_pred = results_pred %>%
   bind_rows() %>%
-  #join true x,y values
-  mutate(true_x = curr_test_pred$true_x,
-         true_y = curr_test_pred$true_y,
-         true_dir = curr_test_pred$true_dir,
-         true_s =  curr_test_pred$true_s,
-         true_a =  curr_test_pred$true_a)
+  left_join(true_x_y, by = c("game_player_play_id", "frame_id")) #join true x,y values
+ 
 
-group_id = 9
+
+
+group_id = 178
 
 results_pred_single_play = results_pred %>% 
   group_by(game_player_play_id) %>%
   filter(cur_group_id() == group_id) %>%
   ungroup() %>%
-  select(game_player_play_id, frame_id, x, true_x, y, true_y, dir, true_dir, s, true_s, a, true_a) %>% 
-  rename(pred_x = x, pred_y = y, pred_dir = dir, pred_s = s, pred_a = a)
+  select(game_player_play_id, frame_id, x, true_x, y, true_y) %>% 
+  rename(pred_x = x, pred_y = y)
 results_pred_single_play
-
-#plot_player_movement(unique(results_pred_single_play$game_player_play_id))
-#game_player_play_id 11 def a defense, running away from ball after it's thrown?
 
 plot_player_movement_pred(group_id = unique(results_pred_single_play$game_player_play_id),
                           group_id_preds = results_pred_single_play %>% select(frame_id, pred_x, pred_y))
 
 
-group_id = 8
+group_id = 20
 #now plot multiple players on same play with predictions
 multi_player_pred_single_play = results_pred %>% 
   group_by(game_play_id) %>%
   filter(cur_group_id() == group_id) %>%
   ungroup() %>%
-  select(game_play_id, game_player_play_id, frame_id, x, true_x, y, true_y, dir, pred_dir, s, pred_s, a, pred_a) %>% 
+  select(game_player_play_id, game_play_id, frame_id, x, true_x, y, true_y) %>% 
   rename(pred_x = x, pred_y = y)
 multi_player_pred_single_play
 
@@ -462,7 +300,7 @@ rmse_boxplot = results_rmse %>%
   theme_bw()
 rmse_boxplot
 
-rmse_boxplot + ylim(c(0, 5))
+#rmse_boxplot + ylim(c(0, 5))
 
 #across entire dataset
 results_pred %>% 
@@ -471,6 +309,20 @@ results_pred %>%
                             pred_x = x, pred_y = y))
 
 #0.94
+
+#boxplot of distance of predicted vs true of each frame across all players, games, plays
+pred_error = results_pred %>% 
+  filter(throw == "post") %>%
+  mutate(error_dist = get_dist(x_diff = pred_x - true_x, y_diff = pred_y - true_y)) 
+
+pred_error %>%
+  ggplot(mapping = aes(y = error_dist)) +
+  geom_boxplot() +
+  theme_bw()
+
+#root mean squared dist
+pred_error %>% summarise(mean = mean(error_dist)) %>% sqrt()
+#why isn't this same as above rmse?
 
 
 
