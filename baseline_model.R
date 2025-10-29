@@ -60,7 +60,7 @@ curr_train = data_mod %>% filter(game_player_play_id %in% split) %>%
   filter(!is.na(fut_dir_diff) & !is.na(fut_s_diff) & !is.na(fut_a_diff)) #remove NA responses
 curr_test = data_mod %>% filter(!(game_player_play_id %in% split))
 
-#filter out the s,a diffs in training set that are clearly impossible
+#filter out the dir,s,a diffs in training set that are clearly impossible
 curr_train[,1:3] %>% summary()
 curr_train$fut_s_diff %>% quantile(probs = c(0.001, 0.999), na.rm = TRUE)
 curr_train$fut_a_diff %>% quantile(probs = c(0.001, 0.999), na.rm = TRUE)
@@ -108,9 +108,9 @@ curr_test_pred = curr_test %>%
 #or maybe filter out the first few frames in each play
 
 #for testing
-curr_test_pred = curr_test_pred[1:500,]
+#curr_test_pred = curr_test_pred[1:500,]
 
-#storing restuls
+#storing results
 results_pred = list()
 
 #loop
@@ -248,12 +248,13 @@ results_pred = results_pred %>%
 
 
 
-group_id = 178
+group_id = 2543
 
 results_pred_single_play = results_pred %>% 
-  group_by(game_player_play_id) %>%
-  filter(cur_group_id() == group_id) %>%
-  ungroup() %>%
+  filter(game_player_play_id == 1592) %>%
+  # group_by(game_player_play_id) %>%
+  # filter(cur_group_id() == group_id) %>%
+  # ungroup() %>%
   select(game_player_play_id, frame_id, x, true_x, y, true_y) %>% 
   rename(pred_x = x, pred_y = y)
 results_pred_single_play
@@ -262,7 +263,7 @@ plot_player_movement_pred(group_id = unique(results_pred_single_play$game_player
                           group_id_preds = results_pred_single_play %>% select(frame_id, pred_x, pred_y))
 
 
-group_id = 20
+group_id = 2543
 #now plot multiple players on same play with predictions
 multi_player_pred_single_play = results_pred %>% 
   group_by(game_play_id) %>%
@@ -300,7 +301,7 @@ rmse_boxplot = results_rmse %>%
   theme_bw()
 rmse_boxplot
 
-#rmse_boxplot + ylim(c(0, 5))
+rmse_boxplot + ylim(c(0, 5))
 
 #across entire dataset
 results_pred %>% 
