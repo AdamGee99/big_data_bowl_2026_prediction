@@ -45,18 +45,13 @@ get_rmse = function(true_x, true_y, pred_x, pred_y) {
 
 
 #' function that takes in train df and estimates dir, s, and a
-#' df needs to have columns: player_to_predict, game_id, nfl_id, play_id, x, y
+#' df needs to have columns: player_to_predict, game_player_play_id, x, y
 #' the x,y here can be either the true values or the predicted values
 
 #' right now just using the previous frame only (lag = 1, lead = 0) to calculate
-est_kinematics = function(train_df) {
-  kin_df = train_df %>%
-    filter(player_to_predict) %>% 
-    group_by(game_id, play_id) %>%
-    mutate(game_play_id = cur_group_id()) %>% #game_play_id
-    ungroup() %>%
-    group_by(game_id, nfl_id, play_id) %>%
-    mutate(game_player_play_id = cur_group_id()) %>% #game_player_play_id
+est_kinematics = function(df) {
+  kin_df = df %>%
+    group_by(game_player_play_id) %>%
     #calculate s, a, dir from true values of x,y values
     mutate(prev_x_diff = x - lag(x), #diff in x from previous -> current frame
            prev_y_diff = y - lag(y), #diff in y from previous -> current frame
@@ -74,8 +69,8 @@ est_kinematics = function(train_df) {
 #' the future change is the response
 #' 
 #' the input df needs to have kinematics (dir, s, a) for this function to work
-change_in_kinematics = function(train_df) {
-  change_kin_df = train_df %>%
+change_in_kinematics = function(df) {
+  change_kin_df = df %>%
     group_by(game_player_play_id) %>%
     mutate(prev_dir_diff_pos = (est_dir - lag(est_dir)) %% 360, #change in dir from previous to current frame - positive direction
            prev_dir_diff_neg = (-(est_dir - lag(est_dir))) %% 360, #change in dir from previous to current frame - negative direction
@@ -102,8 +97,8 @@ change_in_kinematics = function(train_df) {
 #' function that takes in train df and calculates all our derived features
 #' df needs to have columns: 
 
-derived_features = function(train_df) {
-  derived_df = train_df %>%
+derived_features = function(df) {
+  derived_df = df %>%
     group_by(game_player_play_id) %>%
     mutate(ball_land_diff_x = ball_land_x - x, #dist between current x and ball land x
            ball_land_diff_y = ball_land_y - y, #dist between current y and ball land y
