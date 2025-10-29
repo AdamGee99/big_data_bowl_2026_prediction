@@ -216,7 +216,18 @@ wrap_plots(list(plot_player_movement(group_id = group_id),
 #'  -distance where the player currently is to where the ball will land
 #'  -proportion of play complete, standardizes frame ID to be all on the same scale
 
-train_derived = est_kinematics(train) %>% #add estimated direction, speed, acceleration
+#' first add game_player_play_id and game_play_id
+train = train %>% 
+  group_by(game_id, play_id) %>%
+  mutate(game_play_id = cur_group_id()) %>% #game_play_id
+  ungroup() %>%
+  group_by(game_id, nfl_id, play_id) %>%
+  mutate(game_player_play_id = cur_group_id()) %>%
+  ungroup()
+
+train_derived = train %>% 
+  filter(player_to_predict) %>% #only derive the new features on player_to_predict
+  est_kinematics() %>% #add estimated direction, speed, acceleration
   change_in_kinematics() %>% #add change in previous -> current and current -> next frame in direction, speed, acceleration
   derived_features() #add derived features
 
@@ -230,6 +241,20 @@ write.csv(train_derived, file = here("data", "train_clean.csv"), row.names = FAL
 
 
 ############################################### Continue EDA ############################################### 
+
+
+#ball_land_dir_diff vs fut_dir_diff
+ball_land_dir_diff_v_fut_dir_diff = ggplot(data = train, mapping = aes(x = ball_land_dir_diff, y = fut_dir_diff)) + 
+  geom_scattermore(alpha = 0.05)
+ball_land_dir_diff_v_fut_dir_diff
+
+ball_land_dir_diff_v_fut_dir_diff + ylim(c(-30, 30))
+
+
+#' negative relationship here makes sense
+#' if the min distance to where you need to go is -15deg, then you should start heading positive
+#' 
+#' but whats up with these horizontal lines?
 
 
 
