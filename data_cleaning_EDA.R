@@ -222,7 +222,8 @@ train = train %>%
   mutate(game_play_id = cur_group_id()) %>% #game_play_id
   ungroup() %>%
   group_by(game_id, nfl_id, play_id) %>%
-  mutate(game_player_play_id = cur_group_id()) %>%
+  mutate(game_player_play_id = cur_group_id(),
+         prop_play_complete = frame_id/max(frame_id)) %>% #proportion of play complete - standardizes frame ID %>%
   ungroup()
 
 train_derived = train %>% 
