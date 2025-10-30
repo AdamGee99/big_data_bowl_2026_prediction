@@ -59,7 +59,7 @@ curr_train = data_mod %>% filter(game_player_play_id %in% split) %>%
   filter(!is.na(fut_dir_diff) & !is.na(fut_s_diff) & !is.na(fut_a_diff)) #remove NA responses
 curr_test = data_mod %>% filter(!(game_player_play_id %in% split))
 
-#filter out the s,a diffs in training set that are clearly impossible
+#filter out the dir,s,a diffs in training set that are clearly impossible
 curr_train[,1:3] %>% summary()
 curr_train$fut_s_diff %>% quantile(probs = c(0.001, 0.999), na.rm = TRUE)
 curr_train$fut_a_diff %>% quantile(probs = c(0.001, 0.999), na.rm = TRUE)
@@ -273,9 +273,10 @@ results_pred = results %>%
 group_id = 1
 
 results_pred_single_play = results_pred %>% 
-  group_by(game_player_play_id) %>%
-  filter(cur_group_id() == group_id) %>%
-  ungroup() %>%
+  filter(game_player_play_id == 1592) %>%
+  # group_by(game_player_play_id) %>%
+  # filter(cur_group_id() == group_id) %>%
+  # ungroup() %>%
   select(game_player_play_id, frame_id, x, true_x, y, true_y) %>% 
   rename(pred_x = x, pred_y = y)
 results_pred_single_play
