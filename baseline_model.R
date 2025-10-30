@@ -7,6 +7,7 @@ library(xgboost)
 
 ############################################### Description ############################################### 
 #' predicting x,y in next frame by first updating (predicting) direction, speed, and acceleration
+#' three models that predict change in dir, s, a each
 
 
 
@@ -40,7 +41,7 @@ data_mod = train %>%
   #order the columns
   select(fut_dir_diff, fut_s_diff, fut_a_diff, game_player_play_id, game_play_id, everything()) %>%
   #add estimation to post throw
-   mutate(est_dir = ifelse(throw == "pre", dir, est_dir),
+   mutate(est_dir = ifelse(throw == "pre", dir, est_dir), #use recorded dir, s, a if possible over estimated...
           est_speed = ifelse(throw == "pre", s, est_speed),
           est_acc = ifelse(throw == "pre", a, est_acc))  %>%
   #de-select unnecessary feature columns - things that can't be calculated post throw
@@ -76,15 +77,15 @@ xg_train_df = curr_train %>%
 
 dir_xg = xgboost(data =  data.matrix(xg_train_df[,-c(1,2,3)]), 
                  label = xg_train_df$fut_dir_diff,
-                 nrounds = 200, print_every_n = 10)
+                 nrounds = 100, print_every_n = 10)
 
 speed_xg = xgboost(data =  data.matrix(xg_train_df[,-c(1,2,3)]), 
                    label = xg_train_df$fut_s_diff,
-                   nrounds = 200, print_every_n = 10)
+                   nrounds = 100, print_every_n = 10)
 
 acc_xg = xgboost(data =  data.matrix(xg_train_df[,-c(1,2,3)]), 
                  label = xg_train_df$fut_a_diff,
-                 nrounds = 200, print_every_n = 10)
+                 nrounds = 100, print_every_n = 10)
 
 #feature importance
 xgb.importance(model = dir_xg)
@@ -114,30 +115,23 @@ library(foreach)
 library(doParallel)
 
 # Set up cluster
-num_cores = parallel::detectCores() - 2
+num_cores = parallel::detectCores() - 4
 cl = makeCluster(num_cores)
 registerDoParallel(cl)
 
 #for testing
 #curr_test_pred = curr_test_pred[1:500,]
 
-#storing restuls
-#results_pred = list()
-
-
 #these are what we should parallelize over 
 game_player_play_ids = curr_test_pred$game_player_play_id %>% unique()
 
+
 set.seed(1999)
-
 start = Sys.time()
-
-results = foreach(group_id = game_player_play_ids, .combine = rbind, .packages = c("tidyverse", "xgboost", "doParallel", "progressr")) %dopar% {
+results = foreach(group_id = game_player_play_ids, .combine = rbind, .packages = c("tidyverse", "xgboost", "doParallel")) %dopar% {
   
   #single player on single play
   curr_game_player_play_group = curr_test_pred %>% filter(game_player_play_id == group_id)
-  
-  #inner_group_results = list()
   
   #loop through frames in play (not in parallel)
   foreach(i = 1:nrow(curr_game_player_play_group), .combine = rbind) %do% {
@@ -269,41 +263,31 @@ results_pred = results %>%
  
 
 
+#singl player
+group_id = 2
+curr_game_player_play_id = results_pred %>% 
+  group_by(game_player_play_id) %>%
+  filter(cur_group_id() == group_id) %>% 
+  pull(game_player_play_id) %>% unique()
 
-group_id = 1
+plot_player_movement_pred(group_id = curr_game_player_play_id,
+                          group_id_preds = results_pred %>% 
+                            filter(game_player_play_id == curr_game_player_play_id) %>%
+                            select(frame_id, pred_x, pred_y))
 
-results_pred_single_play = results_pred %>% 
-  filter(game_player_play_id == 1592) %>%
-  # group_by(game_player_play_id) %>%
-  # filter(cur_group_id() == group_id) %>%
-  # ungroup() %>%
-  select(game_player_play_id, frame_id, x, true_x, y, true_y) %>% 
-  rename(pred_x = x, pred_y = y)
-results_pred_single_play
-
-plot_player_movement_pred(group_id = unique(results_pred_single_play$game_player_play_id),
-                          group_id_preds = results_pred_single_play %>% select(frame_id, pred_x, pred_y))
-
-
-group_id = 9
-#now plot multiple players on same play with predictions
-multi_player_pred_single_play = results_pred %>% 
+#mulitple players on play
+group_id = 4
+curr_game_play_id = results_pred %>% 
   group_by(game_play_id) %>%
-  filter(cur_group_id() == group_id) %>%
-  ungroup() %>%
-  select(game_player_play_id, game_play_id, frame_id, x, true_x, y, true_y) %>% 
-  rename(pred_x = x, pred_y = y)
-multi_player_pred_single_play
+  filter(cur_group_id() == group_id) %>% 
+  pull(game_play_id) %>% unique()
 
-#multi_player_movement(group_id = unique(multi_player_pred_single_play$game_play_id))
-multi_player_movement_pred(group_id = unique(multi_player_pred_single_play$game_play_id),
-                           group_id_preds = multi_player_pred_single_play %>% select(game_player_play_id, frame_id, pred_x, pred_y))
+multi_player_movement_pred(group_id = curr_game_play_id,
+                           group_id_preds = results_pred %>%
+                             filter(game_play_id == curr_game_play_id) %>%
+                             select(game_player_play_id, frame_id, pred_x, pred_y))
 
 #lots of players dont have predictions since they werent in the test set
-
-#' the paths aren't curving to the landing point enough
-#' makes me think the ball_land_dir_diff feature is broken or not enough
-
 
 
 ### RMSE ###
@@ -313,7 +297,6 @@ results_rmse = results_pred %>%
   group_by(game_player_play_id) %>%
   summarise(rmse = get_rmse(true_x = true_x, true_y = true_y,
                             pred_x = x, pred_y = y))
-
 results_rmse
 
 #plot
