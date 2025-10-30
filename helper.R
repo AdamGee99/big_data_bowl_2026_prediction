@@ -54,12 +54,9 @@ est_kinematics = function(df) {
   kin_df = df %>%
     group_by(game_player_play_id) %>%
     #calculate s, a, dir from true values of x,y values
-    mutate(prev_x_diff = x - lag(x), #diff in x from previous -> current frame
-           prev_y_diff = y - lag(y), #diff in y from previous -> current frame
-           est_speed = get_dist(x_diff = prev_x_diff, y_diff = prev_y_diff)/0.1, #speed over previous -> current frame
+    mutate(est_speed = get_dist(x_diff = x - lag(x), y_diff = y - lag(y))/0.1, #speed over previous -> current frame
            est_acc = (est_speed - lag(est_speed))/0.1, #acc over previous -> current frame (has direction)
-           est_dir = get_dir(x_diff = prev_x_diff, y_diff = prev_y_diff)
-           ) %>%
+           est_dir = get_dir(x_diff = x - lag(x), y_diff = y - lag(y))) %>%
     ungroup()
   
   kin_df
@@ -83,12 +80,10 @@ change_in_kinematics = function(df) {
            fut_a_diff = lead(est_acc) - est_acc #diff in acc from current -> next frame
            ) %>%
     ungroup() %>%
-    rowwise() %>%
     #vectorized change in direction between current and future frame
     #this change in direction is the minimum of the positive or negative direction
     mutate(prev_dir_diff = ifelse(prev_dir_diff_pos <= prev_dir_diff_neg, prev_dir_diff_pos, -prev_dir_diff_neg), 
            fut_dir_diff = ifelse(fut_dir_diff_pos <= fut_dir_diff_neg, fut_dir_diff_pos, -fut_dir_diff_neg)) %>%
-    ungroup() %>%
     select(-c(prev_dir_diff_neg, prev_dir_diff_pos, fut_dir_diff_neg, fut_dir_diff_pos))
   
   change_kin_df
@@ -100,21 +95,12 @@ change_in_kinematics = function(df) {
 
 derived_features = function(df) {
   derived_df = df %>%
-    group_by(game_player_play_id) %>%
-    mutate(ball_land_diff_x = ball_land_x - x, #dist between current x and ball land x
-           ball_land_diff_y = ball_land_y - y, #dist between current y and ball land y
-           curr_ball_land_dir = get_dir(x_diff = ball_land_x - x, y_diff = ball_land_y - y), #direction needed from current point to go to the ball landing point
+    mutate(curr_ball_land_dir = get_dir(x_diff = ball_land_x - x, y_diff = ball_land_y - y), #direction needed from current point to go to the ball landing point
            ball_land_dir_diff_pos = (est_dir - curr_ball_land_dir) %% 360,
            ball_land_dir_diff_neg = (-(est_dir - curr_ball_land_dir)) %% 360,
            dist_ball_land = get_dist(x_diff = ball_land_x - x, y_diff = ball_land_y - y), #the distance where the player currently is to where the ball will land
-           prop_play_complete = frame_id/max(frame_id) #proportion of play complete - standardizes frame ID
+           ball_land_dir_diff = ifelse(ball_land_dir_diff_pos <= ball_land_dir_diff_neg, ball_land_dir_diff_pos, -ball_land_dir_diff_neg) #difference in current direction of player and direction needed to go to to reach ball land (x,y)
            ) %>%
-    ungroup() %>%
-    rowwise() %>%
-    mutate(#difference in current direction of player and direction needed to go to to reach ball land (x,y)
-      ball_land_dir_diff = ifelse(ball_land_dir_diff_pos <= ball_land_dir_diff_neg, ball_land_dir_diff_pos, -ball_land_dir_diff_neg) #again this is min pos or neg direction
-      ) %>%
-    ungroup() %>%
     select(-c(curr_ball_land_dir, ball_land_dir_diff_pos, ball_land_dir_diff_neg)) 
     
   derived_df
@@ -216,9 +202,9 @@ plot_dir = function(group_id, lag_frames, lead_frames) {
 plot_player_movement = function(group_id) {
   plot_df = train %>% 
     filter(player_to_predict) %>% #filter for only players to predict
-    group_by(game_id, nfl_id, play_id) %>% 
+    group_by(game_player_play_id) %>% 
     filter(cur_group_id() == group_id) %>% #filter for a single player on a single play
-    select(frame_id, x, y, ball_land_x, ball_land_y, throw, player_side) %>%
+    select(frame_id, game_id, nfl_id, play_id, x, y, ball_land_x, ball_land_y, throw, player_side) %>%
     ungroup() 
   
   game_id = plot_df$game_id %>% unique()
@@ -245,11 +231,9 @@ plot_player_movement = function(group_id) {
 #' group_id_preds is a df with the frames as a column and pred_x, pred_y as the other two columns
 plot_player_movement_pred = function(group_id, group_id_preds) {
   plot_df = train %>% 
-    filter(player_to_predict) %>% #filter for only players to predict
-    group_by(game_id, nfl_id, play_id) %>% 
-    filter(cur_group_id() == group_id) %>% #filter for a single player on a single play
-    select(frame_id, x, y, ball_land_x, ball_land_y, throw, player_side) %>%
-    ungroup() %>%
+    filter(player_to_predict, #filter for only players to predict
+           game_player_play_id == group_id) %>% 
+    select(frame_id, game_id, nfl_id, play_id, x, y, ball_land_x, ball_land_y, throw, player_side) %>%
     #join predictions
     left_join(group_id_preds, by = "frame_id")
   
@@ -307,9 +291,8 @@ multi_player_movement = function(group_id) {
 #' group_id_preds is a df with the frames as a column and pred_x, pred_y as the other two columns
 multi_player_movement_pred = function(group_id, group_id_preds) {
   plot_df = train %>% 
-    filter(player_to_predict) %>% #filter for only players that were targeted
-    group_by(game_play_id) %>% 
-    filter(cur_group_id() == group_id) %>% #filter for a single play
+    filter(player_to_predict, #filter for only players that were targeted
+           game_play_id == group_id) %>% 
     select(game_id, play_id, game_play_id, game_player_play_id, frame_id, 
            x, y, ball_land_x, ball_land_y, throw, player_side, player_name) %>%
     mutate(colour = ifelse( #add colours depending on offense or defense
@@ -317,7 +300,6 @@ multi_player_movement_pred = function(group_id, group_id_preds) {
       col_numeric(c("black", "green"), domain = range(frame_id))(frame_id),
       col_numeric(c("black", "blue"), domain = range(frame_id))(frame_id)
     )) %>% 
-    ungroup() %>%
     left_join(group_id_preds, by = c("game_player_play_id", "frame_id"))
   game_id = plot_df$game_id %>% unique()
   play_id = plot_df$play_id %>% unique()
