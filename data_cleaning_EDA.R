@@ -211,10 +211,11 @@ wrap_plots(list(plot_player_movement(group_id = group_id),
 ############################################### Deriving New Features ############################################### 
 
 #' new features to add:
-#'  -change in direction between current and previous frame
+#'  -change in dir, s, a between current and previous frame
 #'  -difference in current frames direction and direction of ball land (x,y)
 #'  -distance where the player currently is to where the ball will land
-#'  -proportion of play complete, standardizes frame ID to be all on the same scale
+#'  -distance to nearest out of bounds point
+#'  -direction to nearest out of bounds point
 
 #' first add game_player_play_id and game_play_id
 train = train %>% 
@@ -250,12 +251,17 @@ ball_land_dir_diff_v_fut_dir_diff = ggplot(data = train, mapping = aes(x = ball_
 ball_land_dir_diff_v_fut_dir_diff
 
 ball_land_dir_diff_v_fut_dir_diff + ylim(c(-30, 30))
-
-
 #' negative relationship here makes sense
 #' if the min distance to where you need to go is -15deg, then you should start heading positive
 #' 
 #' but whats up with these horizontal lines?
+
+
+
+#out_bounds_dir_diff vs fut_dir_diff
+ggplot(data = train_derived, mapping = aes(x = out_bounds_dir_diff, y = fut_dir_diff)) +
+  geom_scattermore(alpha = 0.1) + ylim(c(-30, 30))
+
 
 
 
