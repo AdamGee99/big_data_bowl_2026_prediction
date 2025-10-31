@@ -90,21 +90,36 @@ change_in_kinematics = function(df) {
 }
 
 
-#' function that takes in train df and calculates all our derived features
-#' df needs to have columns: 
-
+#' function that takes in df and calculates all our derived features
 derived_features = function(df) {
   derived_df = df %>%
     mutate(curr_ball_land_dir = get_dir(x_diff = ball_land_x - x, y_diff = ball_land_y - y), #direction needed from current point to go to the ball landing point
            ball_land_dir_diff_pos = (est_dir - curr_ball_land_dir) %% 360,
            ball_land_dir_diff_neg = (-(est_dir - curr_ball_land_dir)) %% 360,
+           ball_land_dir_diff = ifelse(ball_land_dir_diff_pos <= ball_land_dir_diff_neg, ball_land_dir_diff_pos, -ball_land_dir_diff_neg), #difference in current direction of player and direction needed to go to to reach ball land (x,y)
            dist_ball_land = get_dist(x_diff = ball_land_x - x, y_diff = ball_land_y - y), #the distance where the player currently is to where the ball will land
-           ball_land_dir_diff = ifelse(ball_land_dir_diff_pos <= ball_land_dir_diff_neg, ball_land_dir_diff_pos, -ball_land_dir_diff_neg) #difference in current direction of player and direction needed to go to to reach ball land (x,y)
-           ) %>%
-    select(-c(curr_ball_land_dir, ball_land_dir_diff_pos, ball_land_dir_diff_neg)) 
+           out_bounds_dist = case_when( #distance to closest out of bounds point
+             ((x - 0) <= (120 - x)) & ((x - 0) <= (53.3 - y)) & ((x - 0) <= (y - 0)) ~ x - 0,
+             ((120 - x) <= (53.3 - x)) & ((120 - x) <= (y - 0)) ~ 120 - x,
+             ((53.3 - y) <= (y - 0)) ~ 53.3 - y,
+             .default = y - 0
+           ),
+           out_bounds_dir = case_when( #direction to closest out of bounds point (always 0, 90, 180, 270)
+             out_bounds_dist == (x - 0) ~ 270,
+             out_bounds_dist == (120 - x) ~ 90,
+             out_bounds_dist == (53.3 - y) ~ 0,
+             out_bounds_dist == (y - 0) ~ 180
+           ),
+           out_bounds_dir_diff_pos = (est_dir - out_bounds_dir) %% 360,
+           out_bounds_dir_diff_neg = (-(est_dir - out_bounds_dir)) %% 360,
+           out_bounds_dir_diff = ifelse(out_bounds_dir_diff_pos <= out_bounds_dir_diff_neg, out_bounds_dir_diff_pos, -out_bounds_dir_diff_neg)) %>% 
+    select(-c(curr_ball_land_dir, ball_land_dir_diff_pos, ball_land_dir_diff_neg,
+              out_bounds_dir, out_bounds_dir_diff_pos, out_bounds_dir_diff_neg)) 
     
   derived_df
 }
+
+
 
 
 
