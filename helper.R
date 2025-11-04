@@ -80,9 +80,8 @@ change_in_kinematics = function(df) {
   change_kin_df = df %>%
     group_by(game_player_play_id) %>%
     mutate(prev_dir_diff = min_pos_neg_dir(est_dir - lag(est_dir)),
-           fut_dir_diff = min_pos_neg_dir(lead(est_dir) - est_dir),
-           prev_s_diff = est_speed - lag(est_speed), #diff in speed from previous -> current frame
            prev_a_diff = est_acc - lag(est_acc), #diff in acc from previous -> current frame
+           fut_dir_diff = min_pos_neg_dir(lead(est_dir) - est_dir),
            fut_s_diff = lead(est_speed) - est_speed, #diff in speed from current -> next frame
            fut_a_diff = lead(est_acc) - est_acc #diff in acc from current -> next frame
            ) %>% 
@@ -98,19 +97,26 @@ derived_features = function(df) {
     mutate(curr_ball_land_dir = get_dir(x_diff = ball_land_x - x, y_diff = ball_land_y - y), #direction needed from current point to go to the ball landing point
            ball_land_dir_diff = min_pos_neg_dir(est_dir - curr_ball_land_dir), #difference in current direction of player and direction needed to go to to reach ball land (x,y)
            dist_ball_land = get_dist(x_diff = ball_land_x - x, y_diff = ball_land_y - y), #the distance where the player currently is to where the ball will land
-           out_bounds_dist = case_when( #distance to closest out of bounds point
+           #distance to closest out of bounds point
+           out_bounds_dist = case_when( 
              ((x - 0) <= (120 - x)) & ((x - 0) <= (53.3 - y)) & ((x - 0) <= (y - 0)) ~ x - 0,
              ((120 - x) <= (53.3 - x)) & ((120 - x) <= (y - 0)) ~ 120 - x,
              ((53.3 - y) <= (y - 0)) ~ 53.3 - y,
              .default = y - 0
            ),
-           out_bounds_dir = case_when( #direction to closest out of bounds point (always 0, 90, 180, 270)
+           #direction to closest out of bounds point (always 0, 90, 180, 270)
+           out_bounds_dir = case_when(
              out_bounds_dist == (x - 0) ~ 270,
              out_bounds_dist == (120 - x) ~ 90,
              out_bounds_dist == (53.3 - y) ~ 0,
              out_bounds_dist == (y - 0) ~ 180
            ),
-           out_bounds_dir_diff = min_pos_neg_dir(est_dir - out_bounds_dir)) %>%
+           out_bounds_dir_diff = min_pos_neg_dir(est_dir - out_bounds_dir),
+           #distance to closest player
+           
+           #direction to closest player
+           
+           ) %>%
     select(-c(out_bounds_dir, curr_ball_land_dir)) 
     
   derived_df
@@ -361,35 +367,38 @@ dir_s_a_eval = function(group_id) {
   
   dir_s_a_eval_df = results_pred %>%
     filter(game_player_play_id == curr_game_player_play_id) %>%
-    select(frame_id, pred_dir, pred_s, pred_a, true_dir, true_s, true_a)
+    select(frame_id, est_dir, est_speed, est_acc, true_dir, true_s, true_a)
   
   dir_eval_plot = dir_s_a_eval_df %>% 
-    select(frame_id, pred_dir, true_dir) %>%
+    select(frame_id, est_dir, true_dir) %>%
     pivot_longer(cols = -frame_id, names_to = "obs", values_to = "value") %>%
-    mutate(obs = ifelse(obs == "pred_dir", "Predicted", "True")) %>%
+    mutate(obs = ifelse(obs == "est_dir", "Predicted", "True")) %>%
     ggplot(mapping = aes(x = frame_id, y = value, colour = obs)) + 
     geom_line() +
+    scale_x_continuous(n.breaks = ceiling(nrow(dir_s_a_eval_df)/2)) +
     scale_colour_manual(values = c("Predicted" = "orange", "True" = "green")) +
     geom_point() + xlab("") + ylab("Direction") +
     theme_bw()
   
   s_eval_plot = dir_s_a_eval_df %>% 
-    select(frame_id, pred_s, true_s) %>%
+    select(frame_id, est_speed, true_s) %>%
     pivot_longer(cols = -frame_id, names_to = "obs", values_to = "value") %>%
-    mutate(obs = ifelse(obs == "pred_s", "Predicted", "True")) %>%
+    mutate(obs = ifelse(obs == "est_speed", "Predicted", "True")) %>%
     ggplot(mapping = aes(x = frame_id, y = value, colour = obs)) + 
     geom_line() +
     geom_point() + xlab("") + ylab("Speed") +
+    scale_x_continuous(n.breaks = ceiling(nrow(dir_s_a_eval_df)/2)) +
     scale_colour_manual(values = c("Predicted" = "orange", "True" = "green")) +
     theme_bw()
   
   a_eval_plot = dir_s_a_eval_df %>% 
-    select(frame_id, pred_a, true_a) %>%
+    select(frame_id, est_acc, true_a) %>%
     pivot_longer(cols = -frame_id, names_to = "obs", values_to = "value") %>%
-    mutate(obs = ifelse(obs == "pred_a", "Predicted", "True")) %>%
+    mutate(obs = ifelse(obs == "est_acc", "Predicted", "True")) %>%
     ggplot(mapping = aes(x = frame_id, y = value, colour = obs)) + 
     geom_line() +
     geom_point() + xlab("Frame ID") + ylab("Acceleration") +
+    scale_x_continuous(n.breaks = ceiling(nrow(dir_s_a_eval_df)/2)) +
     scale_colour_manual(values = c("Predicted" = "orange", "True" = "green")) +
     theme_bw()
   
