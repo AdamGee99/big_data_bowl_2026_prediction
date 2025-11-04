@@ -79,9 +79,9 @@ est_kinematics = function(df) {
 change_in_kinematics = function(df) {
   change_kin_df = df %>%
     group_by(game_player_play_id) %>%
-    mutate(prev_dir_diff = min_pos_neg_dir(est_dir - lag(est_dir)),
+    mutate(prev_dir_diff = min_pos_neg_dir(est_dir - lag(est_dir)), #diff in dir from previous -> current frame
            prev_a_diff = est_acc - lag(est_acc), #diff in acc from previous -> current frame
-           fut_dir_diff = min_pos_neg_dir(lead(est_dir) - est_dir),
+           fut_dir_diff = min_pos_neg_dir(lead(est_dir) - est_dir), #diff in dir from current -> next frame
            fut_s_diff = lead(est_speed) - est_speed, #diff in speed from current -> next frame
            fut_a_diff = lead(est_acc) - est_acc #diff in acc from current -> next frame
            ) %>% 
@@ -275,18 +275,32 @@ plot_player_movement_pred = function(group_id, group_id_preds) {
 
 
 #' function now plotting multiple players on same play
-multi_player_movement = function(group_id) {
+multi_player_movement = function(group_id, only_player_to_predict = TRUE) {
+  if (only_player_to_predict) {
   plot_df = train %>% 
     filter(player_to_predict) %>% #filter for only players that were targeted
     group_by(game_id, play_id) %>% 
     filter(cur_group_id() == group_id) %>% #filter for a single play
-    select(game_id, play_id, frame_id, x, y, ball_land_x, ball_land_y, throw, player_side, player_name) %>%
-    mutate(colour = ifelse(
-      player_side == "Offense", 
-      col_numeric(c("black", "green"), domain = range(frame_id))(frame_id),
-      col_numeric(c("black", "blue"), domain = range(frame_id))(frame_id)
-    )) %>% #add colours depending on offense or defense
-    ungroup() 
+    select(game_id, play_id, frame_id, x, y, ball_land_x, ball_land_y, throw, player_side, player_position, player_name) %>%
+    mutate(colour = case_when(
+      player_side == "Defense" ~ col_numeric(c("black", "blue"), domain = range(frame_id))(frame_id),
+      player_side == "Offense" & player_position == "QB" ~ col_numeric(c("black", "red"), domain = range(frame_id))(frame_id),
+      .default =  col_numeric(c("black", "green"), domain = range(frame_id))(frame_id)
+     )) %>% #add colours depending on offense or defense
+    ungroup()
+  } else {
+    plot_df = train %>% 
+    group_by(game_id, play_id) %>% 
+    filter(cur_group_id() == group_id) %>% #filter for a single play
+    select(game_id, play_id, frame_id, x, y, ball_land_x, ball_land_y, throw, player_side, player_position, player_name) %>%
+    mutate(colour = case_when(
+      player_side == "Defense" ~ col_numeric(c("black", "blue"), domain = range(frame_id))(frame_id),
+      player_side == "Offense" & player_position == "QB" ~ col_numeric(c("black", "red"), domain = range(frame_id))(frame_id),
+      .default =  col_numeric(c("black", "green"), domain = range(frame_id))(frame_id)
+     )) %>% #add colours depending on offense or defense
+        ungroup()
+  }
+  
   game_id = plot_df$game_id %>% unique()
   play_id = plot_df$play_id %>% unique()
   
@@ -302,6 +316,8 @@ multi_player_movement = function(group_id) {
     theme_bw() +
     guides(shape = "none")
 }
+
+
 
 
 #' same as above but now with predictions
