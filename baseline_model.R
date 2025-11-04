@@ -253,7 +253,7 @@ results_pred = results %>%
 
 
 #pred dir, s, a vs true dir, s, a
-group_id = 1
+group_id = 6
 dir_s_a_eval(group_id)
 
 #single player movement
@@ -283,7 +283,7 @@ multi_player_movement_pred(group_id = curr_game_play_id,
                              select(game_player_play_id, frame_id, x, y) %>%
                              rename(pred_x = x, pred_y = y))
 
-#lots of players dont have predictions since they werent in the test set
+#lots of players dont have predictions since they weren't in the test set
 
 
 ### RMSE ###
@@ -310,6 +310,8 @@ results_pred %>%
   filter(throw == "post") %>%
   summarise(rmse = get_rmse(true_x = true_x, true_y = true_y,
                             pred_x = x, pred_y = y))
+#remember this is only 20% of the dataset
+
 
 #fit on all -                     - 1.111
 
@@ -326,9 +328,27 @@ results_pred %>%
 #cat boost off/def models and 0.4 prop_play  - 0.951
 
 #Fixed acceleration!
-#catboost off/def models, 0.4 prop_play - 0.825
+#catboost off/def models, 0.4 prop_play - 0.834
 
 
+
+
+#offense across entire dataset
+results_pred %>% 
+  filter(player_side == "Offense", throw == "post") %>%
+  summarise(rmse = get_rmse(true_x = true_x, true_y = true_y,
+                            pred_x = x, pred_y = y))
+
+#defense across entire dataset
+results_pred %>% 
+  filter(player_side == "Defense", throw == "post") %>%
+  summarise(rmse = get_rmse(true_x = true_x, true_y = true_y,
+                            pred_x = x, pred_y = y))
+
+#defense is much harder to predict 
+
+#' Off - 0.537
+#' Def - 0.929
 
 
 ############################################### Misc Ideas I'll get to eventually ############################################### 
