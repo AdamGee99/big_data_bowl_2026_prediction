@@ -83,9 +83,6 @@ rm(train_X, train_Y)
 #' speed is in yards/s, acceleration is in yards/s^2, 
 #' direction is angle of player motion in degrees, orientation is orientation of player in degrees (these might be hard to calculate)
 
-#save cleaned data
-#write.csv(train, file = here("data", "train_clean.csv"), row.names = FALSE)
-
 
 #group_id is a single player on a single play
 #lag_frames is the number of previous frames to calculate s, a
@@ -164,6 +161,11 @@ plot_player_movement(group_id = 1)
 plot_player_movement(group_id = 2)
 
 multi_player_movement(1)
+#plot all players - need to not have filtered earlier in train
+multi_player_movement(1, only_player_to_predict = FALSE)
+
+
+
 
 num_plots = 4
 wrap_plots(lapply(1:num_plots, multi_player_movement),
@@ -216,6 +218,31 @@ wrap_plots(list(plot_player_movement(group_id = group_id),
 #'  -distance where the player currently is to where the ball will land
 #'  -distance to nearest out of bounds point
 #'  -direction to nearest out of bounds point
+#'  
+#'  
+#'  TO DO: (doing most of these means we need to use the players not in players_to_predict to derive)
+#'  
+#'  -direction to nearest offensive player
+#'  -distance to nearest offensive player
+#'  -speed of nearest offensive player
+#'  -direction of nearest offensive player (the defense is trying to copy/predict this)
+#'  
+#'  -direction to nearest defensive player
+#'  -distance to nearest defensive player
+#'  -speed of nearest defensive player
+#'  -direction of nearest defensive player (the offense is trying to get away from this)
+#'  
+#'  -direction to quarterback
+#'  
+#'  -update ball_land_dir_diff - update to be the nearest direction to a circle around ball land x,y 
+#'                               player just needs to be in this radius to catch, not exactly on the ball land x,y point
+#'                               
+#'                               
+#'  -avg_dir_offense - the average direction the offense is headed (maybe only take average of people close to ball_land? or on play_direction?)
+#'  -avg_speed_offense- same as above but speed
+#'  
+#'  
+#'  
 
 #' first add game_player_play_id and game_play_id
 train = train %>% 
@@ -228,7 +255,7 @@ train = train %>%
   ungroup()
 
 train_derived = train %>% 
-  filter(player_to_predict) %>% #only derive the new features on player_to_predict
+  #filter(player_to_predict) %>% #only derive the new features on player_to_predict
   est_kinematics() %>% #add estimated direction, speed, acceleration
   change_in_kinematics() %>% #add change in previous -> current and current -> next frame in direction, speed, acceleration
   derived_features() #add derived features
