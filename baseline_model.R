@@ -39,9 +39,8 @@ data_mod = train %>%
   #order the columns
   select(fut_dir_diff, fut_s_diff, fut_a_diff, game_player_play_id, game_play_id, everything()) %>%
   #add estimation to post throw
-   mutate(est_dir = ifelse(throw == "pre", dir, est_dir), #use recorded dir, s, a if possible over estimated...
-          est_speed = ifelse(throw == "pre", s, est_speed),
-          est_acc = ifelse(throw == "pre", a, est_acc))  %>%
+   mutate(est_dir = ifelse(throw == "pre", dir, est_dir), #use recorded dir, s if possible over estimated...
+          est_speed = ifelse(throw == "pre", s, est_speed))  %>% #do not use recorded a since its a scalar, we want vector
   #de-select unnecessary feature columns - things that can't be calculated post throw
   select(-c(game_id, nfl_id, play_id, o, player_to_predict, s, a, dir,
           player_birth_date, num_frames_output, num_frames)) %>%
@@ -126,7 +125,7 @@ cl = makeCluster(num_cores)
 registerDoParallel(cl)
 
 #for testing
-#curr_test_pred = curr_test_pred[1:1000,]
+#curr_test_pred = curr_test_pred[1:100,]
 
 #these are what we should parallelize over 
 game_player_play_ids = curr_test_pred$game_player_play_id %>% unique()
@@ -157,36 +156,24 @@ results = foreach(group_id = game_player_play_ids, .combine = rbind, .packages =
         select(all_of(rownames(dir_cat_d$feature_importances))) %>%
         catboost.load_pool()
       
-      fut_dir_diff = ifelse(curr_row$player_side == "Offense", 
-                            catboost.predict(dir_cat_o, cat_pred_df),
-                            catboost.predict(dir_cat_d, cat_pred_df))
-      fut_s_diff = ifelse(curr_row$player_side == "Offense", 
-                          catboost.predict(speed_cat_o, cat_pred_df),
-                          catboost.predict(speed_cat_d, cat_pred_df))
-      fut_a_diff = ifelse(curr_row$player_side == "Offense", 
-                          catboost.predict(acc_cat_o, cat_pred_df),
-                          catboost.predict(acc_cat_d, cat_pred_df))
-      
-      #predicted dir, s, a using xg models
-      pred_dir = curr_row$pred_dir = curr_row$est_dir + fut_dir_diff
-      pred_s = curr_row$pred_s = curr_row$est_speed + fut_s_diff
-      pred_a = curr_row$pred_a = curr_row$est_acc + fut_a_diff
-      
-      
     } else {
       prev_row = inner_results_pred
       
-      #first predict kinematics at current frame using previous frame's predicted position
+      #set current position and dir, s, a as previous prediction 
       curr_row$x = prev_row$pred_x
       curr_row$y = prev_row$pred_y
       
-      #set current position and dir, s, a as previous prediction 
       curr_row$est_dir = prev_row$pred_dir
       curr_row$est_speed = prev_row$pred_s 
       curr_row$est_acc = prev_row$pred_a
       
-      ### predict future kinematics using xg models
-      #update all features necessary for dir,s,a models
+      #predict next frame x,y using current dir, s, a
+      pred_dist_diff = curr_row$est_speed*0.1 + curr_row$est_acc*0.5*0.1^2
+      pred_x = curr_row$x + cos(((90 - curr_row$est_dir) %% 360)*pi/180)*pred_dist_diff
+      pred_y = curr_row$y + sin(((90 - curr_row$est_dir) %% 360)*pi/180)*pred_dist_diff
+      
+      
+      #update features for predicting next dir, s, a 
       prev_curr_frame_df = prev_row %>%
         select(-c(starts_with("pred_"))) %>% #remove the pred columns so we can bind
         rbind(curr_row)
@@ -198,34 +185,26 @@ results = foreach(group_id = game_player_play_ids, .combine = rbind, .packages =
         mutate(prev_x_diff = x - lag(x),
                prev_y_diff = y - lag(y))
       
-      #manually update prop_play_complete
-      prev_curr_frame_df$prop_play_complete[2] = curr_row$prop_play_complete
-      
       #predict future dir, s, a (next frame)
       cat_pred_df = prev_curr_frame_df[2,] %>%  #row to predict on
         select(all_of(rownames(dir_cat_d$feature_importances))) %>%
         catboost.load_pool()
-      
-      fut_dir_diff = ifelse(curr_row$player_side == "Offense", 
-                            catboost.predict(dir_cat_o, cat_pred_df),
-                            catboost.predict(dir_cat_d, cat_pred_df))
-      fut_s_diff = ifelse(curr_row$player_side == "Offense", 
-                          catboost.predict(speed_cat_o, cat_pred_df),
-                          catboost.predict(speed_cat_d, cat_pred_df))
-      fut_a_diff = ifelse(curr_row$player_side == "Offense", 
-                          catboost.predict(acc_cat_o, cat_pred_df),
-                          catboost.predict(acc_cat_d, cat_pred_df))
-      
-      #predicted dir, s, a
-      pred_dir = curr_row$pred_dir = curr_row$est_dir + fut_dir_diff
-      pred_s = curr_row$pred_s = curr_row$est_speed + fut_s_diff
-      pred_a = curr_row$pred_a = curr_row$est_acc + fut_a_diff
-      
-      #predict x,y
-      pred_dist_diff = curr_row$est_speed*0.1 + curr_row$est_acc*0.5*0.1^2
-      pred_x = curr_row$x + cos(((90 - curr_row$est_dir) %% 360)*pi/180)*pred_dist_diff
-      pred_y = curr_row$y + sin(((90 - curr_row$est_dir) %% 360)*pi/180)*pred_dist_diff
     }
+    
+    fut_dir_diff = ifelse(curr_row$player_side == "Offense", 
+                          catboost.predict(dir_cat_o, cat_pred_df),
+                          catboost.predict(dir_cat_d, cat_pred_df))
+    fut_s_diff = ifelse(curr_row$player_side == "Offense", 
+                        catboost.predict(speed_cat_o, cat_pred_df),
+                        catboost.predict(speed_cat_d, cat_pred_df))
+    fut_a_diff = ifelse(curr_row$player_side == "Offense", 
+                        catboost.predict(acc_cat_o, cat_pred_df),
+                        catboost.predict(acc_cat_d, cat_pred_df))
+    
+    #predicted dir, s, a using xg models
+    pred_dir = curr_row$pred_dir = curr_row$est_dir + fut_dir_diff
+    pred_s = curr_row$pred_s = curr_row$est_speed + fut_s_diff
+    pred_a = curr_row$pred_a = curr_row$est_acc + fut_a_diff
     
     #store predicted positions
     curr_row$pred_x = pred_x
@@ -261,8 +240,6 @@ end - start
 #' 
 
 
-
-
 #the true x,y,dir,s,a values
 true_vals = train %>%
   filter(!(game_player_play_id %in% split)) %>% 
@@ -276,7 +253,7 @@ results_pred = results %>%
 
 
 #pred dir, s, a vs true dir, s, a
-group_id = 6
+group_id = 1
 dir_s_a_eval(group_id)
 
 #single player movement
@@ -347,6 +324,9 @@ results_pred %>%
 
 
 #cat boost off/def models and 0.4 prop_play  - 0.951
+
+#Fixed acceleration!
+#catboost off/def models, 0.4 prop_play - 0.825
 
 
 
