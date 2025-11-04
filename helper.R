@@ -37,6 +37,14 @@ get_rmse = function(true_x, true_y, pred_x, pred_y) {
   rmse
 }
 
+#' function that returns the minimum positive or negative direction between two direction differences
+min_pos_neg_dir = function(dir_diff) {
+  pos_diff = dir_diff %% 360
+  neg_diff = -dir_diff %% 360
+  
+  ifelse(pos_diff <= neg_diff, pos_diff, -neg_diff)
+}
+
 
 
 
@@ -71,21 +79,14 @@ est_kinematics = function(df) {
 change_in_kinematics = function(df) {
   change_kin_df = df %>%
     group_by(game_player_play_id) %>%
-    mutate(prev_dir_diff_pos = (est_dir - lag(est_dir)) %% 360, #change in dir from previous to current frame - positive direction
-           prev_dir_diff_neg = (-(est_dir - lag(est_dir))) %% 360, #change in dir from previous to current frame - negative direction
-           fut_dir_diff_pos = (lead(est_dir) - est_dir) %% 360, #change in dir from current to future frame - positive direction
-           fut_dir_diff_neg = (-(lead(est_dir) - est_dir)) %% 360, #change in dir from current to future frame - negative direction
+    mutate(prev_dir_diff = min_pos_neg_dir(est_dir - lag(est_dir)),
+           fut_dir_diff = min_pos_neg_dir(lead(est_dir) - est_dir),
            prev_s_diff = est_speed - lag(est_speed), #diff in speed from previous -> current frame
            prev_a_diff = est_acc - lag(est_acc), #diff in acc from previous -> current frame
            fut_s_diff = lead(est_speed) - est_speed, #diff in speed from current -> next frame
            fut_a_diff = lead(est_acc) - est_acc #diff in acc from current -> next frame
-           ) %>%
-    ungroup() %>%
-    #vectorized change in direction between current and future frame
-    #this change in direction is the minimum of the positive or negative direction
-    mutate(prev_dir_diff = ifelse(prev_dir_diff_pos <= prev_dir_diff_neg, prev_dir_diff_pos, -prev_dir_diff_neg), 
-           fut_dir_diff = ifelse(fut_dir_diff_pos <= fut_dir_diff_neg, fut_dir_diff_pos, -fut_dir_diff_neg)) %>%
-    select(-c(prev_dir_diff_neg, prev_dir_diff_pos, fut_dir_diff_neg, fut_dir_diff_pos))
+           ) %>% 
+    ungroup()
   
   change_kin_df
 }
@@ -95,9 +96,7 @@ change_in_kinematics = function(df) {
 derived_features = function(df) {
   derived_df = df %>%
     mutate(curr_ball_land_dir = get_dir(x_diff = ball_land_x - x, y_diff = ball_land_y - y), #direction needed from current point to go to the ball landing point
-           ball_land_dir_diff_pos = (est_dir - curr_ball_land_dir) %% 360,
-           ball_land_dir_diff_neg = (-(est_dir - curr_ball_land_dir)) %% 360,
-           ball_land_dir_diff = ifelse(ball_land_dir_diff_pos <= ball_land_dir_diff_neg, ball_land_dir_diff_pos, -ball_land_dir_diff_neg), #difference in current direction of player and direction needed to go to to reach ball land (x,y)
+           ball_land_dir_diff = min_pos_neg_dir(est_dir - curr_ball_land_dir), #difference in current direction of player and direction needed to go to to reach ball land (x,y)
            dist_ball_land = get_dist(x_diff = ball_land_x - x, y_diff = ball_land_y - y), #the distance where the player currently is to where the ball will land
            out_bounds_dist = case_when( #distance to closest out of bounds point
              ((x - 0) <= (120 - x)) & ((x - 0) <= (53.3 - y)) & ((x - 0) <= (y - 0)) ~ x - 0,
@@ -111,11 +110,8 @@ derived_features = function(df) {
              out_bounds_dist == (53.3 - y) ~ 0,
              out_bounds_dist == (y - 0) ~ 180
            ),
-           out_bounds_dir_diff_pos = (est_dir - out_bounds_dir) %% 360,
-           out_bounds_dir_diff_neg = (-(est_dir - out_bounds_dir)) %% 360,
-           out_bounds_dir_diff = ifelse(out_bounds_dir_diff_pos <= out_bounds_dir_diff_neg, out_bounds_dir_diff_pos, -out_bounds_dir_diff_neg)) %>% 
-    select(-c(curr_ball_land_dir, ball_land_dir_diff_pos, ball_land_dir_diff_neg,
-              out_bounds_dir, out_bounds_dir_diff_pos, out_bounds_dir_diff_neg)) 
+           out_bounds_dir_diff = min_pos_neg_dir(est_dir - out_bounds_dir)) %>%
+    select(-c(out_bounds_dir, curr_ball_land_dir)) 
     
   derived_df
 }
