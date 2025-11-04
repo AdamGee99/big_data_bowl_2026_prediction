@@ -3,6 +3,7 @@
 library(tidyverse)
 library(here)
 library(scales)
+library(patchwork)
 
 
 
@@ -353,4 +354,51 @@ plot_ball_land_dir_diff = function(group_id) {
   wrap_plots(list(plot_player_movement(group_id), plot), nrow = 2)
 }
 
+
+
+#' function that compares prediced vs true dir, s, a for a single player on a play
+dir_s_a_eval = function(group_id) {
+  curr_game_player_play_id = results_pred %>% 
+    group_by(game_player_play_id) %>%
+    filter(cur_group_id() == group_id) %>% 
+    pull(game_player_play_id) %>% unique()
+  
+  dir_s_a_eval_df = results_pred %>%
+    filter(game_player_play_id == curr_game_player_play_id) %>%
+    select(frame_id, pred_dir, pred_s, pred_a, true_dir, true_s, true_a)
+  
+  dir_eval_plot = dir_s_a_eval_df %>% 
+    select(frame_id, pred_dir, true_dir) %>%
+    pivot_longer(cols = -frame_id, names_to = "obs", values_to = "value") %>%
+    mutate(obs = ifelse(obs == "pred_dir", "Predicted", "True")) %>%
+    ggplot(mapping = aes(x = frame_id, y = value, colour = obs)) + 
+    geom_line() +
+    scale_colour_manual(values = c("Predicted" = "orange", "True" = "green")) +
+    geom_point() + xlab("") + ylab("Direction") +
+    theme_bw()
+  
+  s_eval_plot = dir_s_a_eval_df %>% 
+    select(frame_id, pred_s, true_s) %>%
+    pivot_longer(cols = -frame_id, names_to = "obs", values_to = "value") %>%
+    mutate(obs = ifelse(obs == "pred_s", "Predicted", "True")) %>%
+    ggplot(mapping = aes(x = frame_id, y = value, colour = obs)) + 
+    geom_line() +
+    geom_point() + xlab("") + ylab("Speed") +
+    scale_colour_manual(values = c("Predicted" = "orange", "True" = "green")) +
+    theme_bw()
+  
+  a_eval_plot = dir_s_a_eval_df %>% 
+    select(frame_id, pred_a, true_a) %>%
+    pivot_longer(cols = -frame_id, names_to = "obs", values_to = "value") %>%
+    mutate(obs = ifelse(obs == "pred_a", "Predicted", "True")) %>%
+    ggplot(mapping = aes(x = frame_id, y = value, colour = obs)) + 
+    geom_line() +
+    geom_point() + xlab("Frame ID") + ylab("Acceleration") +
+    scale_colour_manual(values = c("Predicted" = "orange", "True" = "green")) +
+    theme_bw()
+  
+  wrap_plots(list(dir_eval_plot, s_eval_plot, a_eval_plot),
+             nrow = 3)  +
+    plot_layout(guides = "collect")
+}
 
