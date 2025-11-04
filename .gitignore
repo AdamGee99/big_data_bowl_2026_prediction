@@ -4,3 +4,5 @@
 .Ruserdata
 data/
 git
+catboost_info/
+train_dir/
