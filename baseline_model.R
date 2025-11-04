@@ -70,7 +70,7 @@ curr_train$fut_s_diff %>% quantile(probs = c(0.001, 0.999), na.rm = TRUE)
 curr_train$fut_a_diff %>% quantile(probs = c(0.001, 0.999), na.rm = TRUE)
 curr_train = data_mod %>% filter(abs(fut_s_diff) <= 1,
                                abs(fut_a_diff) <= 11) %>%
-  filter(throw == "post") #play is more than 10% complete
+  filter(prop_play_complete >= 0.4 | throw == "post") #play is more than 10% complete
 
 
 #fit models
@@ -79,23 +79,33 @@ xg_train_df = curr_train %>%
   select(-c(game_player_play_id, game_play_id, frame_id, x, y,
             ball_land_x, ball_land_y, player_name, player_height, 
             player_weight, player_role))
+#offense and defense training sets
+xg_train_df_offense = xg_train_df %>% filter(player_side == "Offense") %>% select(-player_side)
+xg_train_df_defense = xg_train_df %>% filter(player_side == "Defense") %>% select(-player_side)
 
-dir_xg = xgboost(data =  data.matrix(xg_train_df[,-c(1,2,3)]), 
-                 label = xg_train_df$fut_dir_diff,
-                 nrounds = 100, print_every_n = 10)
 
-speed_xg = xgboost(data =  data.matrix(xg_train_df[,-c(1,2,3)]), 
-                   label = xg_train_df$fut_s_diff,
+dir_xg_o = xgboost(data =  data.matrix(xg_train_df_offense[,-c(1,2,3)]), label = xg_train_df_offense$fut_dir_diff,
+                   nrounds = 100, print_every_n = 10)
+dir_xg_d = xgboost(data =  data.matrix(xg_train_df_defense[,-c(1,2,3)]), label = xg_train_df_defense$fut_dir_diff,
                    nrounds = 100, print_every_n = 10)
 
-acc_xg = xgboost(data =  data.matrix(xg_train_df[,-c(1,2,3)]), 
-                 label = xg_train_df$fut_a_diff,
-                 nrounds = 100, print_every_n = 10)
+speed_xg_o = xgboost(data =  data.matrix(xg_train_df_offense[,-c(1,2,3)]), label = xg_train_df_offense$fut_s_diff,
+                    nrounds = 100, print_every_n = 10)
+speed_xg_d = xgboost(data =  data.matrix(xg_train_df_defense[,-c(1,2,3)]), label = xg_train_df_defense$fut_s_diff,
+                     nrounds = 100, print_every_n = 10)
+
+acc_xg_o = xgboost(data =  data.matrix(xg_train_df_offense[,-c(1,2,3)]), label = xg_train_df_offense$fut_a_diff,
+                   nrounds = 100, print_every_n = 10)
+acc_xg_d = xgboost(data =  data.matrix(xg_train_df_defense[,-c(1,2,3)]), label = xg_train_df_defense$fut_a_diff,
+                   nrounds = 100, print_every_n = 10)
 
 #feature importance
-xgb.importance(model = dir_xg)
-xgb.importance(model = speed_xg)
-xgb.importance(model = acc_xg)
+xgb.importance(model = dir_xg_o)
+xgb.importance(model = dir_xg_d)
+xgb.importance(model = speed_xg_o)
+xgb.importance(model = speed_xg_d)
+xgb.importance(model = acc_xg_o)
+xgb.importance(model = acc_xg_d)
 
 #' double check that the directions are all working properly
 #' I swear ball_land_dir_diff should be more important
@@ -152,11 +162,17 @@ results = foreach(group_id = game_player_play_ids, .combine = rbind, .packages =
       
       #predict future dir, s, a (next frame)
       xg_pred_df = curr_row %>%  #row to predict on
-        select(all_of(dir_xg$feature_names))
+        select(all_of(dir_xg_o$feature_names))
       
-      fut_dir_diff = predict(dir_xg, data.matrix(xg_pred_df))
-      fut_s_diff = predict(speed_xg, data.matrix(xg_pred_df))
-      fut_a_diff = predict(acc_xg, data.matrix(xg_pred_df))
+      fut_dir_diff = ifelse(curr_row$player_side == "Offense", 
+                            predict(dir_xg_o, data.matrix(xg_pred_df)),
+                            predict(dir_xg_d, data.matrix(xg_pred_df)))
+      fut_s_diff = ifelse(curr_row$player_side == "Offense", 
+                          predict(speed_xg_o, data.matrix(xg_pred_df)),
+                          predict(speed_xg_d, data.matrix(xg_pred_df)))
+      fut_a_diff = ifelse(curr_row$player_side == "Offense", 
+                          predict(acc_xg_o, data.matrix(xg_pred_df)),
+                          predict(acc_xg_d, data.matrix(xg_pred_df)))
       
       #predicted dir, s, a using xg models
       pred_dir = curr_row$pred_dir = curr_row$est_dir + fut_dir_diff
@@ -194,11 +210,17 @@ results = foreach(group_id = game_player_play_ids, .combine = rbind, .packages =
       
       #predict dir, s, a
       xg_pred_df = prev_curr_frame_df[2,] %>%  #row to predict on
-        select(all_of(dir_xg$feature_names))
+        select(all_of(dir_xg_o$feature_names))
       
-      fut_dir_diff = predict(dir_xg, data.matrix(xg_pred_df))
-      fut_s_diff = predict(speed_xg, data.matrix(xg_pred_df))
-      fut_a_diff = predict(acc_xg, data.matrix(xg_pred_df))
+      fut_dir_diff = ifelse(curr_row$player_side == "Offense", 
+                            predict(dir_xg_o, data.matrix(xg_pred_df)),
+                            predict(dir_xg_d, data.matrix(xg_pred_df)))
+      fut_s_diff = ifelse(curr_row$player_side == "Offense", 
+                          predict(speed_xg_o, data.matrix(xg_pred_df)),
+                          predict(speed_xg_d, data.matrix(xg_pred_df)))
+      fut_a_diff = ifelse(curr_row$player_side == "Offense", 
+                          predict(acc_xg_o, data.matrix(xg_pred_df)),
+                          predict(acc_xg_d, data.matrix(xg_pred_df)))
       
       #predicted dir, s, a
       pred_dir = curr_row$pred_dir = curr_row$est_dir + fut_dir_diff
@@ -260,7 +282,7 @@ results_pred = results %>%
 
 
 #pred dir, s, a vs true dir, s, a
-group_id = 10
+group_id = 129
 dir_s_a_eval(group_id)
 
 #single player movement
@@ -268,6 +290,7 @@ curr_game_player_play_id = results_pred %>%
   group_by(game_player_play_id) %>%
   filter(cur_group_id() == group_id) %>% 
   pull(game_player_play_id) %>% unique()
+curr_game_player_play_id = 32291  
 
 plot_player_movement_pred(group_id = curr_game_player_play_id,
                           group_id_preds = results_pred %>% 
@@ -277,7 +300,7 @@ plot_player_movement_pred(group_id = curr_game_player_play_id,
 
 
 #multiple players on play
-group_id = 1
+group_id = 7
 curr_game_play_id = results_pred %>% 
   group_by(game_play_id) %>%
   filter(cur_group_id() == group_id) %>% 
@@ -299,7 +322,8 @@ results_rmse = results_pred %>%
   group_by(game_player_play_id) %>%
   summarise(rmse = get_rmse(true_x = true_x, true_y = true_y,
                             pred_x = x, pred_y = y))
-results_rmse
+results_rmse %>% arrange(desc(rmse))
+
 
 #plot
 rmse_boxplot = results_rmse %>% 
@@ -317,7 +341,14 @@ results_pred %>%
                             pred_x = x, pred_y = y))
 
 #fit on all -                     - 1.111
+
+
 #fit on prop_play_complete > 0.4  - 1.083
+
+#fit on prop_play_complete > 0.4  - 1.035
+#    and separate off,def models 
+
+
 #fit on throw == "post"           - 1.154
 
 
