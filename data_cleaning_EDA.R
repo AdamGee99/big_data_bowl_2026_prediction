@@ -227,22 +227,18 @@ wrap_plots(list(plot_player_movement(group_id = group_id),
 #'  -speed of nearest offensive player
 #'  -direction of nearest offensive player (the defense is trying to copy/predict this)
 #'  
-#'  -direction to nearest defensive player
-#'  -distance to nearest defensive player
-#'  -speed of nearest defensive player
-#'  -direction of nearest defensive player (the offense is trying to get away from this)
-#'  
 #'  -direction to quarterback
 #'  
 #'  -update ball_land_dir_diff - update to be the nearest direction to a circle around ball land x,y 
 #'                               player just needs to be in this radius to catch, not exactly on the ball land x,y point
 #'                               
 #'                               
-#'  -avg_dir_offense - the average direction the offense is headed (maybe only take average of people close to ball_land? or on play_direction?)
+#'  -avg_dir_offense - the average direction the offense is headed (maybe only take average of people close to ball_land?)
 #'  -avg_speed_offense- same as above but speed
 #'  
-#'  
-#'  
+
+
+
 
 #' first add game_player_play_id and game_play_id
 train = train %>% 
@@ -254,8 +250,29 @@ train = train %>%
          prop_play_complete = frame_id/max(frame_id)) %>% #proportion of play complete - standardizes frame ID %>%
   ungroup()
 
+#get min dist,dir to closest player for players_to_predict
+#this is done in parallel
+library(foreach)
+library(doParallel)
+
+# Set up cluster
+num_cores = parallel::detectCores() - 10
+cl = makeCluster(num_cores)
+registerDoParallel(cl)
+
+start = Sys.time()
 train_derived = train %>% 
-  #filter(player_to_predict) %>% #only derive the new features on player_to_predict
+  #filter(game_play_id %in% 1:100) %>% #for testing speed
+  closest_player_dist_dir()
+end = Sys.time()
+end-start
+#write.csv(train_derived, file = here("data", "train_closest_dir_dist.csv"), row.names = FALSE)
+
+#since we only fit on prop_play_complete > 0.4, just derive the features on that!!!!!!!!
+
+#add other derived features that only depend on need player_to_predict (only use players own info)
+train_derived = train_derived %>%
+  filter(player_to_predict) %>% #only derive the new features on player_to_predict
   est_kinematics() %>% #add estimated direction, speed, acceleration
   change_in_kinematics() %>% #add change in previous -> current and current -> next frame in direction, speed, acceleration
   derived_features() #add derived features
@@ -287,6 +304,16 @@ ball_land_dir_diff_v_fut_dir_diff + ylim(c(-30, 30))
 
 #out_bounds_dir_diff vs fut_dir_diff
 ggplot(data = train_derived, mapping = aes(x = out_bounds_dir_diff, y = fut_dir_diff)) +
+  geom_scattermore(alpha = 0.1) + ylim(c(-30, 30))
+
+
+
+#closest_player_dir vs fut_dir
+train_derived %>% filter(player_side == "Offense") %>% ggplot(mapping = aes(x = closest_player_dir_diff, y = fut_dir_diff)) +
+  geom_scattermore(alpha = 0.1) + ylim(c(-30, 30))
+
+#closest_player_dir vs fut_dir
+train_derived %>% filter(player_side == "Defense") %>% ggplot(mapping = aes(x = closest_player_dir_diff, y = fut_dir_diff)) +
   geom_scattermore(alpha = 0.1) + ylim(c(-30, 30))
 
 

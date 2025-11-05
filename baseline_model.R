@@ -74,9 +74,8 @@ curr_train = data_mod %>% filter(abs(fut_s_diff) <= 1,
 #fit models
 #remove all the player-specific stuff for now, just focus on kinematics and ball landing features
 cat_train_df = curr_train %>%
-  select(-c(game_player_play_id, game_play_id, frame_id, x, y,
-            ball_land_x, ball_land_y, player_name, player_height, 
-            player_weight, player_role))
+  select(-c(game_player_play_id, game_play_id, closest_player_id, closest_player_x, closest_player_y,
+            frame_id, x, y, ball_land_x, ball_land_y, player_name, player_height, player_weight, player_role))
 
 #offense and defense training sets
 train_o = cat_train_df %>% filter(player_side == "Offense") %>% select(-c(player_side, fut_dir_diff, fut_s_diff, fut_a_diff))
@@ -125,7 +124,7 @@ cl = makeCluster(num_cores)
 registerDoParallel(cl)
 
 #for testing
-#curr_test_pred = curr_test_pred[1:100,]
+curr_test_pred = curr_test_pred[1:100,]
 
 #these are what we should parallelize over 
 game_player_play_ids = curr_test_pred$game_player_play_id %>% unique()
@@ -181,6 +180,7 @@ results = foreach(group_id = game_player_play_ids, .combine = rbind, .packages =
       # now get change in kinematics and derived features
       prev_curr_frame_df = prev_curr_frame_df %>%
         change_in_kinematics() %>%
+        closest_player_dist_dir() %>%
         derived_features() %>%
         mutate(prev_x_diff = x - lag(x),
                prev_y_diff = y - lag(y))
