@@ -127,20 +127,27 @@ registerDoParallel(cl)
 curr_test_pred = curr_test_pred[1:100,]
 
 #these are what we should parallelize over 
-game_player_play_ids = curr_test_pred$game_player_play_id %>% unique()
+game_play_ids = curr_test_pred$game_play_id %>% unique()
 
 #this is my predict() function
 
 set.seed(1999)
 start = Sys.time()
-results = foreach(group_id = game_player_play_ids, .combine = rbind, .packages = c("tidyverse", "xgboost", "doParallel", "catboost")) %dopar% {
+results = foreach(group_id = game_play_ids, .combine = rbind, .packages = c("tidyverse", "doParallel", "catboost")) %do% {
   
   #single player on single play
-  curr_game_player_play_group = curr_test_pred %>% filter(game_player_play_id == group_id)
+  curr_game_play_group = curr_test_pred %>% filter(game_play_id == group_id)
   
   #loop through frames in play (not in parallel)
-  foreach(i = 1:nrow(curr_game_player_play_group), .combine = rbind) %do% {
-    curr_row = curr_game_player_play_group[i,]
+  foreach(i = 1:nrow(curr_game_play_group), .combine = rbind) %do% {
+    #in order to incorporate closest player metrics
+    #need to simultaneously predict every player in the play on the current frame
+    #then you can get the distances and directions to each other from the closest_player_dist_dir function
+    
+    #so instead of curr_row, we should do curr_frame
+    
+    
+    curr_row = curr_game_play_group[i,]
     
     #initialize position as last observed values before throw
     if (curr_row$throw == "pre") { 
@@ -206,11 +213,9 @@ results = foreach(group_id = game_player_play_ids, .combine = rbind, .packages =
     pred_s = curr_row$pred_s = curr_row$est_speed + fut_s_diff
     pred_a = curr_row$pred_a = curr_row$est_acc + fut_a_diff
     
-    #store predicted positions
+    #store predicted positions and kinematics
     curr_row$pred_x = pred_x
     curr_row$pred_y = pred_y
-    
-    #store predicted kinematics
     curr_row$pred_dir = pred_dir
     curr_row$pred_s = pred_s
     curr_row$pred_a = pred_a
@@ -253,7 +258,7 @@ results_pred = results %>%
 
 
 #pred dir, s, a vs true dir, s, a
-group_id = 6
+group_id = 2
 dir_s_a_eval(group_id)
 
 #single player movement
