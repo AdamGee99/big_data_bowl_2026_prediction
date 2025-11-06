@@ -123,106 +123,151 @@ num_cores = parallel::detectCores() - 2
 cl = makeCluster(num_cores)
 registerDoParallel(cl)
 
-#for testing
-curr_test_pred = curr_test_pred[1:100,]
-
 #these are what we should parallelize over 
 game_play_ids = curr_test_pred$game_play_id %>% unique()
 
+#for testing
+#game_play_ids = game_play_ids[1:10]
+
 #this is my predict() function
+
+#' flow of this:
+#'  -loop through all the plays
+#'    -loop through all the frames in a play
+#'      -loop through the players in the play "post throw" (player_to_predict == TRUE)
+#'        -predict next x,y
+#'        -derive features necessary for next dir, s, a prediction
+#'        -predict next dir, s, a
 
 set.seed(1999)
 start = Sys.time()
-results = foreach(group_id = game_play_ids, .combine = rbind, .packages = c("tidyverse", "doParallel", "catboost")) %do% {
-  
+results = foreach(group_id = game_play_ids, .combine = rbind, .packages = c("tidyverse", "doParallel", "catboost")) %dopar% {
   #single player on single play
   curr_game_play_group = curr_test_pred %>% filter(game_play_id == group_id)
+  #the frames in the play
+  frames = curr_game_play_group$frame_id %>% unique()
+  
+  #player ids in the play we need to predict
+  player_ids = curr_game_play_group$game_player_play_id %>% unique()
   
   #loop through frames in play (not in parallel)
-  foreach(i = 1:nrow(curr_game_play_group), .combine = rbind) %do% {
-    #in order to incorporate closest player metrics
-    #need to simultaneously predict every player in the play on the current frame
-    #then you can get the distances and directions to each other from the closest_player_dist_dir function
+  foreach(frame = frames, .combine = rbind) %do% {
     
-    #so instead of curr_row, we should do curr_frame
-    
-    
-    curr_row = curr_game_play_group[i,]
-    
-    #initialize position as last observed values before throw
-    if (curr_row$throw == "pre") { 
-      #if last observation pre throw, predict next frame position using true observed kinematic values
-      pred_dist_diff = curr_row$est_speed*0.1 + curr_row$est_acc*0.5*0.1^2
+    #this section is just to derive closest player dist/dir
+    foreach(player_id = player_ids, .combine = rbind) %do% {
       
-      pred_x = curr_row$x + cos(((90 - curr_row$est_dir) %% 360)*pi/180)*pred_dist_diff
-      pred_y = curr_row$y + sin(((90 - curr_row$est_dir) %% 360)*pi/180)*pred_dist_diff
+      target_player = curr_game_play_group %>% filter(game_player_play_id == player_id, frame_id == frame) #info for target player on this frame
+      #the row index in curr_game_play_group so we can store predictions and have access to them in the next frame
+      row_index = which(curr_game_play_group$frame_id == frame & curr_game_play_group$game_player_play_id == player_id)
       
-      #predict future dir, s, a (next frame)
-      cat_pred_df = curr_row %>%  #row to predict on
-        select(all_of(rownames(dir_cat_d$feature_importances))) %>%
-        catboost.load_pool()
+      #can get all the predicted positions and dir,s,a in here just as before
+      #initialize
+      if (target_player$throw == "pre") { 
+        #if last observation pre throw, predict next frame position using true observed kinematic values
+        pred_dist_diff = target_player$est_speed*0.1 + target_player$est_acc*0.5*0.1^2
+        pred_x = target_player$x + cos(((90 - target_player$est_dir) %% 360)*pi/180)*pred_dist_diff
+        pred_y = target_player$y + sin(((90 - target_player$est_dir) %% 360)*pi/180)*pred_dist_diff
+        
+        #don't need to derive features here since we know the true feature values already (this is "pre" throw)
+        
+        #predict future dir, s, a (next frame)
+        cat_pred_df = target_player %>%  #row to predict on
+          select(all_of(rownames(dir_cat_d$feature_importances))) %>%
+          catboost.load_pool()
+        
+      } else {
+        target_player_prev_frame = curr_game_play_group %>% 
+          filter(game_player_play_id == player_id, frame_id == frame - 1)
+        #needed for closest player dist/dir derivation
+        other_players_prev_frame = curr_game_play_group %>% 
+          filter(game_player_play_id != player_id, frame_id == frame - 1)
+        other_player_ids = other_players_prev_frame$game_player_play_id
+        
+        ########## set current position, dir, s, a as previous prediction ##########
+        target_player$x = curr_game_play_group$x[row_index] = target_player_prev_frame$pred_x
+        target_player$y = curr_game_play_group$y[row_index] = target_player_prev_frame$pred_y
+        target_player$est_dir = curr_game_play_group$est_dir[row_index] = target_player_prev_frame$pred_dir
+        target_player$est_speed = curr_game_play_group$est_speed[row_index] = target_player_prev_frame$pred_s 
+        target_player$est_acc = curr_game_play_group$est_acc[row_index] = target_player_prev_frame$pred_a
+        
+        ########## predict next frame x,y using current dir, s, a ##########
+        pred_dist_diff = target_player$est_speed*0.1 + target_player$est_acc*0.5*0.1^2
+        pred_x = target_player$x + cos(((90 - target_player$est_dir) %% 360)*pi/180)*pred_dist_diff
+        pred_y = target_player$y + sin(((90 - target_player$est_dir) %% 360)*pi/180)*pred_dist_diff
+        
+        # ########## derive features ##########
+        # 
+        ### closest player features ###
+        min_dist_diff = Inf
+
+        #if there are no other players set closest player features to NA
+        if (length(player_ids) == 0) {
+          target_player$closest_player_dist = NA
+          target_player$closest_player_dir_diff = NA
+        } else {
+          foreach(other_player = other_player_ids, .combine = rbind) %do% {
+            curr_other_player = other_players_prev_frame %>% filter(game_player_play_id == other_player)
+            curr_other_x_diff = target_player$x - curr_other_player$pred_x #the other players current x position
+            curr_other_y_diff = target_player$y - curr_other_player$pred_y #the other players current y position
+
+            #update closest player features
+            if (get_dist(curr_other_x_diff, curr_other_y_diff) < min_dist_diff) {
+              target_player$closest_player_dist = get_dist(curr_other_x_diff, curr_other_y_diff)
+              target_player$closest_player_dir_diff = get_dir(curr_other_x_diff, curr_other_y_diff)
+            }}
+        }
+        ### done closest player features ###
+        
+        #update features for predicting next dir, s, a 
+        prev_curr_frame_df = target_player_prev_frame %>%
+          rbind(target_player)
+        
+        # now get change in kinematics and derived features
+        prev_curr_frame_df = prev_curr_frame_df %>%
+          change_in_kinematics() %>%
+          derived_features() %>%
+          mutate(prev_x_diff = x - lag(x),
+                 prev_y_diff = y - lag(y))
+        
+        #predict future dir, s, a (next frame)
+        cat_pred_df = prev_curr_frame_df[2,] %>%  #row to predict on
+          select(all_of(rownames(dir_cat_d$feature_importances))) %>%
+          catboost.load_pool()
+      }
       
-    } else {
-      prev_row = inner_results_pred
+      ########## predict next dir, s, a ##########
       
-      #set current position and dir, s, a as previous prediction 
-      curr_row$x = prev_row$pred_x
-      curr_row$y = prev_row$pred_y
+      fut_dir_diff = ifelse(target_player$player_side == "Offense", 
+                            catboost.predict(dir_cat_o, cat_pred_df),
+                            catboost.predict(dir_cat_d, cat_pred_df))
+      fut_s_diff = ifelse(target_player$player_side == "Offense", 
+                          catboost.predict(speed_cat_o, cat_pred_df),
+                          catboost.predict(speed_cat_d, cat_pred_df))
+      fut_a_diff = ifelse(target_player$player_side == "Offense", 
+                          catboost.predict(acc_cat_o, cat_pred_df),
+                          catboost.predict(acc_cat_d, cat_pred_df))
       
-      curr_row$est_dir = prev_row$pred_dir
-      curr_row$est_speed = prev_row$pred_s 
-      curr_row$est_acc = prev_row$pred_a
+      #predicted dir, s, a using xg models
+      pred_dir = target_player$pred_dir = target_player$est_dir + fut_dir_diff
+      pred_s = target_player$pred_s = target_player$est_speed + fut_s_diff
+      pred_a = target_player$pred_a = target_player$est_acc + fut_a_diff
       
-      #predict next frame x,y using current dir, s, a
-      pred_dist_diff = curr_row$est_speed*0.1 + curr_row$est_acc*0.5*0.1^2
-      pred_x = curr_row$x + cos(((90 - curr_row$est_dir) %% 360)*pi/180)*pred_dist_diff
-      pred_y = curr_row$y + sin(((90 - curr_row$est_dir) %% 360)*pi/180)*pred_dist_diff
+      #store predicted positions and kinematics
+      target_player$pred_x = curr_game_play_group$pred_x[row_index] = pred_x 
+      target_player$pred_y = curr_game_play_group$pred_y[row_index] = pred_y
+      target_player$pred_dir = curr_game_play_group$pred_dir[row_index] = pred_dir 
+      target_player$pred_s = curr_game_play_group$pred_s[row_index] = pred_s
+      target_player$pred_a = curr_game_play_group$pred_a[row_index] = pred_a
       
+      #return result
+      target_player
       
-      #update features for predicting next dir, s, a 
-      prev_curr_frame_df = prev_row %>%
-        select(-c(starts_with("pred_"))) %>% #remove the pred columns so we can bind
-        rbind(curr_row)
-      
-      # now get change in kinematics and derived features
-      prev_curr_frame_df = prev_curr_frame_df %>%
-        change_in_kinematics() %>%
-        closest_player_dist_dir() %>%
-        derived_features() %>%
-        mutate(prev_x_diff = x - lag(x),
-               prev_y_diff = y - lag(y))
-      
-      #predict future dir, s, a (next frame)
-      cat_pred_df = prev_curr_frame_df[2,] %>%  #row to predict on
-        select(all_of(rownames(dir_cat_d$feature_importances))) %>%
-        catboost.load_pool()
+      # #for debugging 
+      # if(player_id == 336) { prev_curr_frame_df[2,] %>% 
+      #     select(all_of(rownames(dir_cat_d$feature_importances))) %>% 
+      #     select(-c(throw, play_direction, absolute_yardline_number, player_position, prop_play_complete)) %>% 
+      #     print()} 
     }
-    
-    fut_dir_diff = ifelse(curr_row$player_side == "Offense", 
-                          catboost.predict(dir_cat_o, cat_pred_df),
-                          catboost.predict(dir_cat_d, cat_pred_df))
-    fut_s_diff = ifelse(curr_row$player_side == "Offense", 
-                        catboost.predict(speed_cat_o, cat_pred_df),
-                        catboost.predict(speed_cat_d, cat_pred_df))
-    fut_a_diff = ifelse(curr_row$player_side == "Offense", 
-                        catboost.predict(acc_cat_o, cat_pred_df),
-                        catboost.predict(acc_cat_d, cat_pred_df))
-    
-    #predicted dir, s, a using xg models
-    pred_dir = curr_row$pred_dir = curr_row$est_dir + fut_dir_diff
-    pred_s = curr_row$pred_s = curr_row$est_speed + fut_s_diff
-    pred_a = curr_row$pred_a = curr_row$est_acc + fut_a_diff
-    
-    #store predicted positions and kinematics
-    curr_row$pred_x = pred_x
-    curr_row$pred_y = pred_y
-    curr_row$pred_dir = pred_dir
-    curr_row$pred_s = pred_s
-    curr_row$pred_a = pred_a
-    
-    #return result
-    inner_results_pred = curr_row
-    inner_results_pred
   }
 }
 end = Sys.time()
@@ -253,12 +298,12 @@ true_vals = train %>%
 
 #bind results into df
 results_pred = results %>%
-  bind_rows() %>%
-  left_join(true_vals, by = c("game_player_play_id", "frame_id")) #join true x,y values
+  left_join(true_vals, by = c("game_player_play_id", "frame_id")) %>% #join true x,y values
+  arrange(game_play_id, game_player_play_id, frame_id)
 
 
 #pred dir, s, a vs true dir, s, a
-group_id = 2
+group_id = 238
 dir_s_a_eval(group_id)
 
 #single player movement
@@ -266,7 +311,7 @@ curr_game_player_play_id = results_pred %>%
   group_by(game_player_play_id) %>%
   filter(cur_group_id() == group_id) %>% 
   pull(game_player_play_id) %>% unique()
-#curr_game_player_play_id = 32291  
+#curr_game_player_play_id = 926
 
 plot_player_movement_pred(group_id = curr_game_player_play_id,
                           group_id_preds = results_pred %>% 
@@ -276,7 +321,7 @@ plot_player_movement_pred(group_id = curr_game_player_play_id,
 
 
 #multiple players on play
-group_id = 7
+group_id = 1323
 curr_game_play_id = results_pred %>% 
   group_by(game_play_id) %>%
   filter(cur_group_id() == group_id) %>% 
@@ -333,7 +378,8 @@ results_pred %>%
 #cat boost off/def models and 0.4 prop_play  - 0.951
 
 #Fixed acceleration!
-#catboost off/def models, 0.4 prop_play - 0.834
+#catboost off/def models, 0.4 prop_play -  0.834
+#above but added closest player features - 0.821
 
 
 
