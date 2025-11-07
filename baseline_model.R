@@ -19,22 +19,11 @@ train = read.csv(file = here("data", "train_clean.csv"))
 
 source(here("helper.R"))
 
-#' end model is a simple kinematics formula:
-#' pos_next = pos_curr + vel_curr*0.1 + 0.5*acc_curr*(0.1^2) - 0.1 seconds between frames
-#' this is a straight line in the current direction (dir_curr)
-#' this is a simple model that can then be built upon
-#' autoregressive, predicts position in next frame from current frame
-#' need three seperate models: direction, speed, acceleration
-#' once you have these three things, then its a simple kinematics formula
-
 #' ignore the player info and everything else right now, just keep it simple
 #' also right now this is only using players_to_predict, not sure if it makes sense to include the other players?
-
-
-#' first fit model
 #' not worried about tuning right now
 
-#modelling the future change in dir, s, a instead of the actual dir, s, a value...
+#modelling the future change in dir, s, a
 data_mod = train %>% 
   #order the columns
   select(fut_dir_diff, fut_s_diff, fut_a_diff, game_player_play_id, game_play_id, everything()) %>%
@@ -51,13 +40,10 @@ data_mod %>% filter(throw == "post" & lag(throw) == "pre") %>% pull(prop_play_co
 
 #min is 0.225 - fit models mostly on post-throw
 
-#these have the true x,y values but that's ok
-#fitting it on true value calculations is ok, but we just can't use the true values to calculate when we actually predict
-
-#' 80% train, 20% test - by game_player_play groups
+#' 80% train, 20% test - by play groups
 set.seed(1999)
-n_game_player_plays = data_mod %>% pull(game_player_play_id) %>% unique() %>% length() #46,045
-split = sample(unique(data_mod$game_player_play_id), size = round(0.8*n_game_player_plays))
+n_plays = data_mod %>% pull(game_play_id) %>% unique() %>% length() #9,109 plays
+split = sample(unique(data_mod$game_player_play_id), size = round(0.8*n_plays))
 curr_train = data_mod %>% filter(game_player_play_id %in% split) %>%
   filter(!is.na(fut_dir_diff) & !is.na(fut_s_diff) & !is.na(fut_a_diff)) #remove NA responses
 curr_test = data_mod %>% filter(!(game_player_play_id %in% split))
@@ -72,10 +58,11 @@ curr_train = data_mod %>% filter(abs(fut_s_diff) <= 1,
 
 
 #fit models
-#remove all the player-specific stuff for now, just focus on kinematics and ball landing features
 cat_train_df = curr_train %>%
-  select(-c(game_player_play_id, game_play_id, closest_player_id, closest_player_x, closest_player_y,
-            frame_id, x, y, ball_land_x, ball_land_y, player_name, player_height, player_weight, player_role))
+  #drop unnecessary features
+  select(-c(game_player_play_id, game_play_id, player_role, 
+            closest_player_id, closest_player_x, closest_player_y,
+            frame_id, x, y, ball_land_x, ball_land_y, player_name))
 
 #offense and defense training sets
 train_o = cat_train_df %>% filter(player_side == "Offense") %>% select(-c(player_side, fut_dir_diff, fut_s_diff, fut_a_diff))
@@ -91,7 +78,6 @@ cat_train_speed_d = catboost.load_pool(train_d, label = train_d_labels$fut_s_dif
 cat_train_acc_o = catboost.load_pool(train_o, label = train_o_labels$fut_a_diff)
 cat_train_acc_d = catboost.load_pool(train_d, label = train_d_labels$fut_a_diff)
 
-
 #fit
 dir_cat_o = catboost.train(cat_train_dir_o, params = list(metric_period = 50))
 dir_cat_d = catboost.train(cat_train_dir_d, params = list(metric_period = 50))
@@ -101,6 +87,24 @@ speed_cat_d = catboost.train(cat_train_speed_d, params = list(metric_period = 50
 
 acc_cat_o = catboost.train(cat_train_acc_o, params = list(metric_period = 50))
 acc_cat_d = catboost.train(cat_train_acc_d, params = list(metric_period = 50))
+
+#feature importance
+catboost.get_feature_importance(dir_cat_o)
+catboost.get_feature_importance(dir_cat_d)
+catboost.get_feature_importance(speed_cat_o)
+catboost.get_feature_importance(speed_cat_d)
+catboost.get_feature_importance(acc_cat_o)
+catboost.get_feature_importance(acc_cat_d)
+
+
+#' experiment with:
+#'  1. fit model with automatic test set evaluation thing
+#'  2. shrink model
+#'  3. drop unused features
+#'  
+#'  see if any of these improve performance
+
+
 
 
 #just predict on post throw
@@ -127,7 +131,7 @@ registerDoParallel(cl)
 game_play_ids = curr_test_pred$game_play_id %>% unique()
 
 #for testing
-#game_play_ids = game_play_ids[1:10]
+game_play_ids = game_play_ids[1:100]
 
 #this is my predict() function
 
@@ -274,6 +278,10 @@ end = Sys.time()
 end - start
 #results
 
+# I think this for loop is now memory intensive, rather than CPU intensive
+# - if we can somehow make it less memory intesive that should speed this up
+
+
 ### experiment with this - figure out the best method - compare rmse at the end
 #' 1. predict x,y first, then use future x,y to predict future dir, s, a
 #' 2. predict dir,s,a first, then use future dir,s,a to predict future x,y
@@ -303,7 +311,7 @@ results_pred = results %>%
 
 
 #pred dir, s, a vs true dir, s, a
-group_id = 238
+group_id = 1
 dir_s_a_eval(group_id)
 
 #single player movement
@@ -321,7 +329,7 @@ plot_player_movement_pred(group_id = curr_game_player_play_id,
 
 
 #multiple players on play
-group_id = 1323
+group_id = 4
 curr_game_play_id = results_pred %>% 
   group_by(game_play_id) %>%
   filter(cur_group_id() == group_id) %>% 
