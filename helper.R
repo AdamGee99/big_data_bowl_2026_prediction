@@ -23,6 +23,11 @@ get_dist = function(x_diff, y_diff) {
   sqrt(x_diff^2 + y_diff^2)
 }
 
+#' same as above but function takes in a vector
+get_dist_vector = function(diffs) {
+  sqrt(diffs[1]^2 + diffs[2]^2)
+}
+
 
 #' function to get rmse (evaluation metriic) for predictions
 #' inputs: true x,y values, predicted x,y values
@@ -43,6 +48,31 @@ min_pos_neg_dir = function(dir_diff) {
   neg_diff = -dir_diff %% 360
   
   ifelse(pos_diff <= neg_diff, pos_diff, -neg_diff)
+}
+
+
+#' takes in a dataframe for all players in the same frame
+#' outputs the min distance and direction to the closest other player
+#' player ids are game_player_play_id
+get_closest_player_min_dist_dir = function(df) {
+  combn(nrow(df), 2, FUN = function(id) {
+    i = id[1]
+    j = id[2]
+    
+    data.frame(
+      game_player_play_id = df$game_player_play_id[i],
+      other_player = df$game_player_play_id[j],
+      distance = get_dist(df$x[j] - df$x[i], df$y[j] - df$y[i]),
+      direction = get_dir(df$x[j] - df$x[i], df$y[j] - df$y[i])
+    )
+  }, simplify = FALSE) %>% bind_rows() %>%
+    pivot_longer(cols = c(game_player_play_id, other_player),
+                 names_to = "role",
+                 values_to = "player") %>%
+    select(-role) %>%
+    group_by(player) %>%
+    summarise(closest_player_dist = min(distance),
+              closest_player_dir = min(direction))
 }
 
 
