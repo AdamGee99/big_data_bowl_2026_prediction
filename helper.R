@@ -53,8 +53,13 @@ min_pos_neg_dir = function(dir_diff) {
 
 #' takes in a dataframe for all players in the same frame
 #' outputs the min distance and direction to the closest other player
-#' player ids are game_player_play_id
+#' input df must have: game_player_play_id, x, y for each player in the frame
 get_closest_player_min_dist_dir = function(df) {
+  if(nrow(df) == 1) { #if only one lpayer to predict post throw - NA closest player features
+    data.frame(game_player_play_id = df$game_player_play_id,
+               closes_player_dist = NA,
+               closest_player_dir = NA)
+  } else {
   combn(nrow(df), 2, FUN = function(id) {
     i = id[1]
     j = id[2]
@@ -68,11 +73,12 @@ get_closest_player_min_dist_dir = function(df) {
   }, simplify = FALSE) %>% bind_rows() %>%
     pivot_longer(cols = c(game_player_play_id, other_player),
                  names_to = "role",
-                 values_to = "player") %>%
+                 values_to = "game_player_play_id") %>%
     select(-role) %>%
-    group_by(player) %>%
+    group_by(game_player_play_id) %>%
     summarise(closest_player_dist = min(distance),
               closest_player_dir = min(direction))
+  }
 }
 
 
