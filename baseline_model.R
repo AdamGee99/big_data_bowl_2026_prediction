@@ -10,6 +10,13 @@ library(catboost)
 #' predicting x,y from direction, speed, acceleration in current frame and updating (predicting) direction, speed, and acceleration in next frame
 #' three models that predict change in dir, s, a each
 #' separate dir, s, a models for offense and defense 
+#' 
+#' 
+#' 
+#' 
+#' 
+#' DO MORE EDA, figure out if derived features need manipulation
+#' also exclude any weird plays on training... or investigate anything else wrong with the data...
 
 
 ############################################### Baseline Model ############################################### 
@@ -19,9 +26,10 @@ train = read.csv(file = here("data", "train_clean.csv"))
 
 source(here("helper.R"))
 
-#' ignore the player info and everything else right now, just keep it simple
-#' also right now this is only using players_to_predict, not sure if it makes sense to include the other players?
-#' not worried about tuning right now
+#' right now only training on players_to_predict, not sure if it makes sense to include the other players?
+#' 
+#' 
+#' THIS IS ALL EDA - MOVE THIS TO ANOTHER FILE NAD ONLY FIT MODELS AND PREDICT HERE
 
 #modelling the future change in dir, s, a
 data_mod = train %>% 
@@ -37,32 +45,64 @@ data_mod = train %>%
 
 #what proportion of play being complete is ball thrown
 data_mod %>% filter(throw == "post" & lag(throw) == "pre") %>% pull(prop_play_complete) %>% hist()
-
 #min is 0.225 - fit models mostly on post-throw
+prop_play_cutoff = 0.4 #this is the cutoff for the amount of play being complete we will fit the model on
+#set at 40% play completion right now
 
 #' 80% train, 20% test - by play groups
 set.seed(1999)
 n_plays = data_mod %>% pull(game_play_id) %>% unique() %>% length() #9,109 plays
-split = sample(unique(data_mod$game_player_play_id), size = round(0.8*n_plays))
-curr_train = data_mod %>% filter(game_player_play_id %in% split) %>%
+split = sample(unique(data_mod$game_play_id), size = round(0.8*n_plays))
+data_mod_train = data_mod %>% filter(game_play_id %in% split) %>%
   filter(!is.na(fut_dir_diff) & !is.na(fut_s_diff) & !is.na(fut_a_diff)) #remove NA responses
-curr_test = data_mod %>% filter(!(game_player_play_id %in% split))
+data_mod_test = data_mod %>% filter(!(game_play_id %in% split))
 
 #filter out the dir,s,a diffs in training set that are clearly impossible
-curr_train[,1:3] %>% summary()
-curr_train$fut_s_diff %>% quantile(probs = c(0.001, 0.999), na.rm = TRUE)
-curr_train$fut_a_diff %>% quantile(probs = c(0.001, 0.999), na.rm = TRUE)
-curr_train = data_mod %>% filter(abs(fut_s_diff) <= 1,
-                               abs(fut_a_diff) <= 11) %>%
-  filter(prop_play_complete >= 0.4 | throw == "post") #play is more than 10% complete
+data_mod_train %>% filter(throw == "post") %>% select(fut_dir_diff, fut_s_diff, fut_a_diff) %>% summary()
+
+#histograms of response
+data_mod_train %>% filter(throw == "post") %>% pull(fut_dir_diff) %>% hist(breaks = 200, xlim = c(-50, 50))
+data_mod_train %>% filter(throw == "post") %>% pull(fut_s_diff) %>% hist(breaks = 200, xlim = c(-2, 2))
+data_mod_train %>% filter(throw == "post") %>% pull(fut_a_diff) %>% hist(breaks = 600, xlim = c(-11, 11))
+
+data_mod_train %>% filter(throw == "post") %>% pull(fut_dir_diff) %>% quantile(probs = c(0.01, 0.99), na.rm = TRUE)
+data_mod_train %>% filter(throw == "post") %>% pull(fut_s_diff) %>% quantile(probs = c(0.01, 0.99), na.rm = TRUE)
+data_mod_train %>% filter(throw == "post") %>% pull(fut_a_diff) %>% quantile(probs = c(0.01, 0.99), na.rm = TRUE)
+
+#also get rid of plays that were cleary recorded incorrectly - the plays with way too many frames
+num_frames = data_mod_train %>% filter(throw == "post") %>% group_by(game_player_play_id) %>% summarise(n_frames = n())
+num_frames$n_frames %>% hist(breaks = 50)
+num_frames$n_frames %>% summary()
+num_frames$n_frames %>% quantile(probs = c(0.999))
+#identify plays that run too long
+long_player_plays = num_frames %>% filter(n_frames >= 33) %>% pull(game_player_play_id)
+plot_player_movement_game_player_play_id(long_player_plays[4])
+#weird ones: 4, 9, 10, 11, 14, 15, 16, 32, 34
+weird_long_player_plays = long_player_plays[c(4, 9, 10, 11, 14, 15, 16, 32, 34)]
+train %>% filter(game_player_play_id %in% c(weird_long_player_plays)) %>%
+  pull(game_play_id) %>% unique()
+multi_player_movement_game_play_id(152) #this is fine
+multi_player_movement_game_play_id(348) #this is wrong
+multi_player_movement_game_play_id(812) #this is fine
+multi_player_movement_game_play_id(2962) #this is fine
+
+#so just get rid of second play
+data_mod_train = data_mod_train %>% filter(!(game_play_id %in% 348))
+
+
+#filter out the 1% highest and lowest dir, s and a, these are probably weird data/calculation issues
+data_mod_train = data_mod %>% filter(abs(fut_dir_diff) <= 50,
+                                     abs(fut_s_diff) <= 1.5,
+                                     abs(fut_a_diff) <= 5) %>%
+  filter(prop_play_complete >= prop_play_cutoff | throw == "post") #play is post throw or more than 40% complete
 
 
 #fit models
-cat_train_df = curr_train %>%
+cat_train_df = data_mod_train %>%
   #drop unnecessary features
   select(-c(game_player_play_id, game_play_id, player_role, 
-            closest_player_id, closest_player_x, closest_player_y,
-            frame_id, x, y, ball_land_x, ball_land_y, player_name))
+            closest_player_id, frame_id, x, y, 
+            ball_land_x, ball_land_y, player_name))
 
 #offense and defense training sets
 train_o = cat_train_df %>% filter(player_side == "Offense") %>% select(-c(player_side, fut_dir_diff, fut_s_diff, fut_a_diff))
@@ -105,10 +145,8 @@ catboost.get_feature_importance(acc_cat_d)
 #'  see if any of these improve performance
 
 
-
-
-#just predict on post throw
-curr_test_pred = curr_test %>% 
+#df to generate predictions on
+data_mod_test_pred = data_mod_test %>% 
   filter(throw == "post" | (throw == "pre" & lead(throw) == "post")) %>% #filter for post throw only
          #mutate the unknowns to be NA to ensure the model isn't using any future known data
          mutate(across(-c(game_player_play_id, game_play_id, throw, frame_id, play_direction, 
@@ -116,22 +154,21 @@ curr_test_pred = curr_test %>%
                    player_side, player_role, ball_land_x, ball_land_y, prop_play_complete), 
                 ~ ifelse(throw == "pre", .x, NA))) 
 
-#attempting to do this in parallel
-#with future and furrr package
-
+#do this in parallel
 library(foreach)
-library(doParallel)
+library(doFuture)
+library(progressr)
+handlers(global = TRUE)
+handlers("progress")
 
-# Set up cluster
-num_cores = parallel::detectCores() - 2
-cl = makeCluster(num_cores)
-registerDoParallel(cl)
+registerDoFuture()
+plan(multisession, workers = 10)
 
 #these are what we should parallelize over 
-game_play_ids = curr_test_pred$game_play_id %>% unique()
+game_play_ids = data_mod_test_pred$game_play_id %>% unique()
 
 #for testing
-game_play_ids = game_play_ids[1:100]
+#game_play_ids = game_play_ids[1:100]
 
 #this is my predict() function
 
@@ -145,135 +182,109 @@ game_play_ids = game_play_ids[1:100]
 
 set.seed(1999)
 start = Sys.time()
-results = foreach(group_id = game_play_ids, .combine = rbind, .packages = c("tidyverse", "doParallel", "catboost")) %dopar% {
-  #single player on single play
-  curr_game_play_group = curr_test_pred %>% filter(game_play_id == group_id)
-  #the frames in the play
-  frames = curr_game_play_group$frame_id %>% unique()
+with_progress({
+  p = progressor(steps = length(game_play_ids)) #progress
   
-  #player ids in the play we need to predict
-  player_ids = curr_game_play_group$game_player_play_id %>% unique()
-  
-  #loop through frames in play (not in parallel)
-  foreach(frame = frames, .combine = rbind) %do% {
+  results = foreach(group_id = game_play_ids, .combine = rbind, .packages = c("tidyverse", "doParallel", "catboost")) %dopar% {
+    p(sprintf("Iteration %d", group_id)) #progress 
     
-    #this section is just to derive closest player dist/dir
-    foreach(player_id = player_ids, .combine = rbind) %do% {
+    #single player on single play
+    curr_game_play_group = data_mod_test_pred %>% filter(game_play_id == group_id)
+    #the frames in the play
+    frames = curr_game_play_group$frame_id %>% unique()
+    #player ids in the play we need to predict
+    player_ids = curr_game_play_group$game_player_play_id %>% unique()
+    
+    #loop through frames in play (not in parallel)
+    foreach(frame = frames, .combine = rbind) %do% {
       
-      target_player = curr_game_play_group %>% filter(game_player_play_id == player_id, frame_id == frame) #info for target player on this frame
-      #the row index in curr_game_play_group so we can store predictions and have access to them in the next frame
-      row_index = which(curr_game_play_group$frame_id == frame & curr_game_play_group$game_player_play_id == player_id)
+      #info for all players in current frame
+      curr_frame_all_players = data_mod_test_pred %>% filter(game_play_id == group_id, frame_id == frame)
+      #if frame is pre throw we already know the features and everything to predict x,y,dir,s,a
       
-      #can get all the predicted positions and dir,s,a in here just as before
-      #initialize
-      if (target_player$throw == "pre") { 
-        #if last observation pre throw, predict next frame position using true observed kinematic values
-        pred_dist_diff = target_player$est_speed*0.1 + target_player$est_acc*0.5*0.1^2
-        pred_x = target_player$x + cos(((90 - target_player$est_dir) %% 360)*pi/180)*pred_dist_diff
-        pred_y = target_player$y + sin(((90 - target_player$est_dir) %% 360)*pi/180)*pred_dist_diff
+      #if frame is post throw then we need to update position and dir, s, a based on previous iterations predictions
+      if (unique(curr_frame_all_players$throw) == "post") { 
+        #update current x, y dir, s, a as previous prediction
+        prev_frame_all_players = result
+        curr_frame_all_players = curr_frame_all_players %>%
+          mutate(x = prev_frame_all_players$pred_x,
+                 y = prev_frame_all_players$pred_y,
+                 est_dir = prev_frame_all_players$pred_dir,
+                 est_speed = prev_frame_all_players$pred_s,
+                 est_acc = prev_frame_all_players$pred_a,
+                 #initialize the preds to be NA
+                 pred_x = NA,
+                 pred_y = NA,
+                 pred_dir = NA,
+                 pred_s = NA,
+                 pred_a = NA) 
         
-        #don't need to derive features here since we know the true feature values already (this is "pre" throw)
+        #derive features
         
-        #predict future dir, s, a (next frame)
-        cat_pred_df = target_player %>%  #row to predict on
-          select(all_of(rownames(dir_cat_d$feature_importances))) %>%
-          catboost.load_pool()
+        #closest player features
+        closest_player_features = get_closest_player_min_dist_dir(curr_frame_all_players) 
+        curr_frame_all_players = curr_frame_all_players %>% 
+          select(-c(closest_player_dist)) %>% #deselect the closest player columns so we can merge the right ones
+          full_join(closest_player_features, by = c("game_player_play_id")) %>% #join the min dist/dir
+          mutate(closest_player_dir_diff = min_pos_neg_dir(est_dir - closest_player_dir)) %>%
+          select(-closest_player_dir) #deselect the actual direction
         
-      } else {
-        target_player_prev_frame = curr_game_play_group %>% 
-          filter(game_player_play_id == player_id, frame_id == frame - 1)
-        #needed for closest player dist/dir derivation
-        other_players_prev_frame = curr_game_play_group %>% 
-          filter(game_player_play_id != player_id, frame_id == frame - 1)
-        other_player_ids = other_players_prev_frame$game_player_play_id
+        #all other features
+        #need previous frame to compute lag stuff
+        prev_curr_frame_df = curr_frame_all_players %>%
+          rbind(prev_frame_all_players) %>%
+          arrange(game_player_play_id, frame_id)
         
-        ########## set current position, dir, s, a as previous prediction ##########
-        target_player$x = curr_game_play_group$x[row_index] = target_player_prev_frame$pred_x
-        target_player$y = curr_game_play_group$y[row_index] = target_player_prev_frame$pred_y
-        target_player$est_dir = curr_game_play_group$est_dir[row_index] = target_player_prev_frame$pred_dir
-        target_player$est_speed = curr_game_play_group$est_speed[row_index] = target_player_prev_frame$pred_s 
-        target_player$est_acc = curr_game_play_group$est_acc[row_index] = target_player_prev_frame$pred_a
-        
-        ########## predict next frame x,y using current dir, s, a ##########
-        pred_dist_diff = target_player$est_speed*0.1 + target_player$est_acc*0.5*0.1^2
-        pred_x = target_player$x + cos(((90 - target_player$est_dir) %% 360)*pi/180)*pred_dist_diff
-        pred_y = target_player$y + sin(((90 - target_player$est_dir) %% 360)*pi/180)*pred_dist_diff
-        
-        # ########## derive features ##########
-        # 
-        ### closest player features ###
-        min_dist_diff = Inf
-
-        #if there are no other players set closest player features to NA
-        if (length(player_ids) == 0) {
-          target_player$closest_player_dist = NA
-          target_player$closest_player_dir_diff = NA
-        } else {
-          foreach(other_player = other_player_ids, .combine = rbind) %do% {
-            curr_other_player = other_players_prev_frame %>% filter(game_player_play_id == other_player)
-            curr_other_x_diff = target_player$x - curr_other_player$pred_x #the other players current x position
-            curr_other_y_diff = target_player$y - curr_other_player$pred_y #the other players current y position
-
-            #update closest player features
-            if (get_dist(curr_other_x_diff, curr_other_y_diff) < min_dist_diff) {
-              target_player$closest_player_dist = get_dist(curr_other_x_diff, curr_other_y_diff)
-              target_player$closest_player_dir_diff = get_dir(curr_other_x_diff, curr_other_y_diff)
-            }}
-        }
-        ### done closest player features ###
-        
-        #update features for predicting next dir, s, a 
-        prev_curr_frame_df = target_player_prev_frame %>%
-          rbind(target_player)
-        
-        # now get change in kinematics and derived features
-        prev_curr_frame_df = prev_curr_frame_df %>%
+        #derived other features
+        curr_frame_all_players = prev_curr_frame_df %>%
+          group_by(game_player_play_id) %>% #make sure to group_by each player
           change_in_kinematics() %>%
           derived_features() %>%
-          mutate(prev_x_diff = x - lag(x),
-                 prev_y_diff = y - lag(y))
-        
-        #predict future dir, s, a (next frame)
-        cat_pred_df = prev_curr_frame_df[2,] %>%  #row to predict on
-          select(all_of(rownames(dir_cat_d$feature_importances))) %>%
-          catboost.load_pool()
+          filter(frame_id == frame) #filter for only current frame
       }
       
-      ########## predict next dir, s, a ##########
+      #predict next x,y
+      curr_frame_all_players = curr_frame_all_players %>%
+        mutate(pred_dist_diff = est_speed*0.1 + est_acc*0.5*0.1^2,
+               pred_x = x + cos(((90 - est_dir) %% 360)*pi/180)*pred_dist_diff,
+               pred_y = y + sin(((90 - est_dir) %% 360)*pi/180)*pred_dist_diff) %>%
+        select(-pred_dist_diff)
       
-      fut_dir_diff = ifelse(target_player$player_side == "Offense", 
-                            catboost.predict(dir_cat_o, cat_pred_df),
-                            catboost.predict(dir_cat_d, cat_pred_df))
-      fut_s_diff = ifelse(target_player$player_side == "Offense", 
-                          catboost.predict(speed_cat_o, cat_pred_df),
-                          catboost.predict(speed_cat_d, cat_pred_df))
-      fut_a_diff = ifelse(target_player$player_side == "Offense", 
-                          catboost.predict(acc_cat_o, cat_pred_df),
-                          catboost.predict(acc_cat_d, cat_pred_df))
+      #predict next dir, s, a
+      curr_frame_all_players = foreach(player = player_ids, .combine = rbind) %do% { #need to do this in a loop since catboost load pool thing
+        cat_pred_df = curr_frame_all_players %>%
+          filter(game_player_play_id == player) %>%
+          select(all_of(rownames(dir_cat_d$feature_importances))) %>% #pred df for catboost
+          catboost.load_pool()
+        
+        #return row with predicted dir, s, a
+        curr_frame_player = curr_frame_all_players %>% 
+          filter(game_player_play_id == player) %>% #predict on single player
+          mutate(pred_dir = est_dir + ifelse(player_side == "Offense", 
+                                             catboost.predict(dir_cat_o, cat_pred_df), 
+                                             catboost.predict(dir_cat_d, cat_pred_df)),
+                 pred_s = est_speed + ifelse(player_side == "Offense", 
+                                             catboost.predict(speed_cat_o, cat_pred_df), 
+                                             catboost.predict(speed_cat_d, cat_pred_df)),
+                 pred_a = est_acc + ifelse(player_side == "Offense", 
+                                           catboost.predict(acc_cat_o, cat_pred_df), 
+                                           catboost.predict(acc_cat_d, cat_pred_df)))
+        
+        #same colnames as previous iteration
+        if(curr_frame_player$throw != "pre") {curr_frame_all_players = curr_frame_all_players %>% select(all_of(colnames(result)))} 
+        
+        curr_frame_player
+      }
       
-      #predicted dir, s, a using xg models
-      pred_dir = target_player$pred_dir = target_player$est_dir + fut_dir_diff
-      pred_s = target_player$pred_s = target_player$est_speed + fut_s_diff
-      pred_a = target_player$pred_a = target_player$est_acc + fut_a_diff
+      ### return result ###
+      result = curr_frame_all_players
+      result
       
-      #store predicted positions and kinematics
-      target_player$pred_x = curr_game_play_group$pred_x[row_index] = pred_x 
-      target_player$pred_y = curr_game_play_group$pred_y[row_index] = pred_y
-      target_player$pred_dir = curr_game_play_group$pred_dir[row_index] = pred_dir 
-      target_player$pred_s = curr_game_play_group$pred_s[row_index] = pred_s
-      target_player$pred_a = curr_game_play_group$pred_a[row_index] = pred_a
-      
-      #return result
-      target_player
-      
-      # #for debugging 
-      # if(player_id == 336) { prev_curr_frame_df[2,] %>% 
-      #     select(all_of(rownames(dir_cat_d$feature_importances))) %>% 
-      #     select(-c(throw, play_direction, absolute_yardline_number, player_position, prop_play_complete)) %>% 
-      #     print()} 
+      #print(colnames(result))
+      #if(frame %in% c(26,27)) {print(colnames(result))}
     }
   }
-}
+})
 end = Sys.time()
 end - start
 #results
@@ -299,8 +310,7 @@ end - start
 
 
 #the true x,y,dir,s,a values
-true_vals = train %>%
-  filter(!(game_player_play_id %in% split)) %>% 
+true_vals = data_mod_test %>% 
   rename(true_dir = est_dir, true_s = est_speed, true_a = est_acc, true_x = x, true_y = y) %>% 
   select(game_player_play_id, frame_id, true_dir, true_s, true_a, true_x, true_y)
 
@@ -329,11 +339,12 @@ plot_player_movement_pred(group_id = curr_game_player_play_id,
 
 
 #multiple players on play
-group_id = 4
+group_id = 20
 curr_game_play_id = results_pred %>% 
   group_by(game_play_id) %>%
   filter(cur_group_id() == group_id) %>% 
   pull(game_play_id) %>% unique()
+#curr_game_play_id = 977
 
 multi_player_movement_pred(group_id = curr_game_play_id,
                            group_id_preds = results_pred %>%
@@ -346,22 +357,36 @@ multi_player_movement_pred(group_id = curr_game_play_id,
 
 ### RMSE ###
 
-results_rmse = results_pred %>%
+#worst player_plays
+results_rmse_player = results_pred %>%
   filter(throw == "post") %>%
   group_by(game_player_play_id) %>%
   summarise(rmse = get_rmse(true_x = true_x, true_y = true_y,
                             pred_x = x, pred_y = y))
 results_rmse %>% arrange(desc(rmse))
 
+#worst plays
+results_rmse_play = results_pred %>%
+  filter(throw == "post") %>%
+  group_by(game_play_id) %>%
+  summarise(rmse = get_rmse(true_x = true_x, true_y = true_y,
+                            pred_x = x, pred_y = y))
+results_rmse_play %>% arrange(desc(rmse))
 
-#plot
-rmse_boxplot = results_rmse %>% 
+
+#plot player rmse
+results_rmse %>% 
   ggplot(mapping = aes(y = rmse)) +
   geom_boxplot() +
   theme_bw()
-rmse_boxplot
 
-rmse_boxplot + ylim(c(0, 5))
+#plot play rmse
+results_rmse_play %>% 
+  ggplot(mapping = aes(y = rmse)) +
+  geom_boxplot() +
+  theme_bw()
+
+
 
 #across entire dataset
 results_pred %>% 
@@ -388,6 +413,8 @@ results_pred %>%
 #Fixed acceleration!
 #catboost off/def models, 0.4 prop_play -  0.834
 #above but added closest player features - 0.821
+
+#same as above but filtering out weird data - 0.730
 
 
 
