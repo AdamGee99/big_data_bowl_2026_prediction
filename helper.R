@@ -57,7 +57,7 @@ min_pos_neg_dir = function(dir_diff) {
 get_closest_player_min_dist_dir = function(df) {
   if(nrow(df) == 1) { #if only one lpayer to predict post throw - NA closest player features
     data.frame(game_player_play_id = df$game_player_play_id,
-               closes_player_dist = NA,
+               closest_player_dist = NA,
                closest_player_dir = NA)
   } else {
   combn(nrow(df), 2, FUN = function(id) {
