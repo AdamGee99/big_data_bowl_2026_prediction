@@ -5,6 +5,7 @@ library(here)
 library(ggrepel)
 library(xgboost)
 library(catboost)
+library(scattermore)
 
 ############################################### Description ############################################### 
 #' predicting x,y from direction, speed, acceleration in current frame and updating (predicting) direction, speed, and acceleration in next frame
@@ -58,16 +59,16 @@ data_mod_train = data_mod %>% filter(game_play_id %in% split) %>%
 data_mod_test = data_mod %>% filter(!(game_play_id %in% split))
 
 #filter out the dir,s,a diffs in training set that are clearly impossible
-data_mod_train %>% filter(throw == "post") %>% select(fut_dir_diff, fut_s_diff, fut_a_diff) %>% summary()
+data_mod %>% filter(throw == "post") %>% select(fut_dir_diff, fut_s_diff, fut_a_diff) %>% summary()
 
 #histograms of response
-data_mod_train %>% filter(throw == "post") %>% pull(fut_dir_diff) %>% hist(breaks = 200, xlim = c(-50, 50))
-data_mod_train %>% filter(throw == "post") %>% pull(fut_s_diff) %>% hist(breaks = 200, xlim = c(-2, 2))
-data_mod_train %>% filter(throw == "post") %>% pull(fut_a_diff) %>% hist(breaks = 600, xlim = c(-11, 11))
+data_mod %>% filter(throw == "post") %>% pull(fut_dir_diff) %>% hist(breaks = 200, xlim = c(-50, 50))
+data_mod %>% filter(throw == "post") %>% pull(fut_s_diff) %>% hist(breaks = 200, xlim = c(-2, 2))
+data_mod %>% filter(throw == "post") %>% pull(fut_a_diff) %>% hist(breaks = 600, xlim = c(-11, 11))
 
-data_mod_train %>% filter(throw == "post") %>% pull(fut_dir_diff) %>% quantile(probs = c(0.01, 0.99), na.rm = TRUE)
-data_mod_train %>% filter(throw == "post") %>% pull(fut_s_diff) %>% quantile(probs = c(0.01, 0.99), na.rm = TRUE)
-data_mod_train %>% filter(throw == "post") %>% pull(fut_a_diff) %>% quantile(probs = c(0.01, 0.99), na.rm = TRUE)
+data_mod %>% filter(throw == "post") %>% pull(fut_dir_diff) %>% quantile(probs = c(0.01, 0.99), na.rm = TRUE)
+data_mod %>% filter(throw == "post") %>% pull(fut_s_diff) %>% quantile(probs = c(0.01, 0.99), na.rm = TRUE)
+data_mod %>% filter(throw == "post") %>% pull(fut_a_diff) %>% quantile(probs = c(0.01, 0.99), na.rm = TRUE)
 
 #also get rid of plays that were cleary recorded incorrectly - the plays with way too many frames
 num_frames = data_mod_train %>% filter(throw == "post") %>% group_by(game_player_play_id) %>% summarise(n_frames = n())
@@ -75,25 +76,21 @@ num_frames$n_frames %>% hist(breaks = 50)
 num_frames$n_frames %>% summary()
 num_frames$n_frames %>% quantile(probs = c(0.999))
 #identify plays that run too long
-long_player_plays = num_frames %>% filter(n_frames >= 33) %>% pull(game_player_play_id)
-plot_player_movement_game_player_play_id(long_player_plays[4])
-#weird ones: 4, 9, 10, 11, 14, 15, 16, 32, 34
+long_player_plays = num_frames %>% filter(n_frames >= 50) %>% pull(game_player_play_id)
+long_player_plays %>% lapply(plot_player_movement_game_player_play_id)
 weird_long_player_plays = long_player_plays[c(4, 9, 10, 11, 14, 15, 16, 32, 34)]
 train %>% filter(game_player_play_id %in% c(weird_long_player_plays)) %>%
   pull(game_play_id) %>% unique()
-multi_player_movement_game_play_id(152) #this is fine
-multi_player_movement_game_play_id(348) #this is wrong
-multi_player_movement_game_play_id(812) #this is fine
-multi_player_movement_game_play_id(2962) #this is fine
+multi_player_movement_game_play_id(812) #this is wrong
 
 #so just get rid of second play
-data_mod_train = data_mod_train %>% filter(!(game_play_id %in% 348))
+data_mod_train = data_mod_train %>% filter(!(game_play_id %in% 812))
 
 
 #filter out the 1% highest and lowest dir, s and a, these are probably weird data/calculation issues
 data_mod_train = data_mod %>% filter(abs(fut_dir_diff) <= 50,
                                      abs(fut_s_diff) <= 1.5,
-                                     abs(fut_a_diff) <= 5) %>%
+                                     abs(fut_a_diff) <= 6) %>%
   filter(prop_play_complete >= prop_play_cutoff | throw == "post") #play is post throw or more than 40% complete
 
 
@@ -268,7 +265,9 @@ with_progress({
                                              catboost.predict(speed_cat_d, cat_pred_df)),
                  pred_a = est_acc + ifelse(player_side == "Offense", 
                                            catboost.predict(acc_cat_o, cat_pred_df), 
-                                           catboost.predict(acc_cat_d, cat_pred_df)))
+                                           catboost.predict(acc_cat_d, cat_pred_df))) %>%
+          mutate(pred_s = ifelse(pred_s < 0, 0, pred_s)) #speed cannot be 0
+        #this seems like a band aid fix - how to model speed as strictly positive? model on log scale then back-transform?
         
         #same colnames as previous iteration
         if(curr_frame_player$throw != "pre") {curr_frame_all_players = curr_frame_all_players %>% select(all_of(colnames(result)))} 
@@ -320,6 +319,50 @@ results_pred = results %>%
   arrange(game_play_id, game_player_play_id, frame_id)
 
 
+#evaluate dir, s, a results
+results_pred %>% select(pred_dir, true_dir) %>% summary()
+results_pred %>% select(pred_dir, true_dir) %>% mutate(pred_dir = pred_dir %% 360) %>% summary()
+results_pred %>% select(pred_s, true_s) %>% summary()
+results_pred %>% select(pred_a, true_a) %>% summary()
+
+#I think we need to mod 360 the direction?
+#also some predicted speeds are negative, clearly this is impossible - when this is the case, convert it to 0?
+#is there a way for catboost to constrain the response?
+
+
+#true vs predicted dir
+ggplot(data = results_pred, mapping = aes(x = true_dir, y = pred_dir)) +
+  geom_scattermore() +
+  xlim(c(min(c(results_pred$pred_dir, results_pred$true_dir))), 
+       max(c(results_pred$pred_dir, results_pred$true_dir))) + 
+  ylim(c(min(c(results_pred$pred_dir, results_pred$true_dir))), 
+       max(c(results_pred$pred_dir, results_pred$true_dir))) +
+  theme_bw() +
+  labs(x = "True Direction", y = "Predicted Direction")
+
+#true vs predicted speed
+ggplot(data = results_pred, mapping = aes(x = true_s, y = pred_s)) +
+  geom_scattermore() +
+  xlim(c(min(c(results_pred$pred_s, results_pred$true_s))), 
+       max(c(results_pred$pred_s, results_pred$true_s))) + 
+  ylim(c(min(c(results_pred$pred_s, results_pred$true_s))), 
+       max(c(results_pred$pred_s, results_pred$true_s))) +
+  theme_bw() +
+  labs(x = "True Speed", y = "Predicted Speed")
+
+#true vs predicted acc
+ggplot(data = results_pred, mapping = aes(x = true_a, y = pred_a)) +
+  geom_scattermore() +
+  xlim(c(min(c(results_pred$pred_a, results_pred$true_a))), 
+       max(c(results_pred$pred_a, results_pred$true_a))) + 
+  ylim(c(min(c(results_pred$pred_a, results_pred$true_a))), 
+       max(c(results_pred$pred_a, results_pred$true_a))) +
+  theme_bw() +
+  labs(x = "True Acceleration", y = "Predicted Acceleration")
+#acceleration seems squashed a bit, maybe include higher true vals in training set?
+
+
+
 #pred dir, s, a vs true dir, s, a
 group_id = 1
 dir_s_a_eval(group_id)
@@ -339,7 +382,7 @@ plot_player_movement_pred(group_id = curr_game_player_play_id,
 
 
 #multiple players on play
-group_id = 20
+group_id = 1
 curr_game_play_id = results_pred %>% 
   group_by(game_play_id) %>%
   filter(cur_group_id() == group_id) %>% 
@@ -415,6 +458,7 @@ results_pred %>%
 #above but added closest player features - 0.821
 
 #same as above but filtering out weird data - 0.730
+#same as above but band-aid fix to negative speeds - 0.729
 
 
 
@@ -435,6 +479,11 @@ results_pred %>%
 
 #' Off - 0.537
 #' Def - 0.929
+#' 
+#' 
+#' 
+#'  YOU NEED TO DO CV - ALL THESE RMSEs MIGHT BE USING DIFFERENT TEST SETS
+
 
 
 ############################################### Misc Ideas I'll get to eventually ############################################### 
