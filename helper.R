@@ -23,6 +23,11 @@ get_dist = function(x_diff, y_diff) {
   sqrt(x_diff^2 + y_diff^2)
 }
 
+#' same as above but function takes in a vector
+get_dist_vector = function(diffs) {
+  sqrt(diffs[1]^2 + diffs[2]^2)
+}
+
 
 #' function to get rmse (evaluation metriic) for predictions
 #' inputs: true x,y values, predicted x,y values
@@ -46,6 +51,37 @@ min_pos_neg_dir = function(dir_diff) {
 }
 
 
+#' takes in a dataframe for all players in the same frame
+#' outputs the min distance and direction to the closest other player
+#' input df must have: game_player_play_id, x, y for each player in the frame
+get_closest_player_min_dist_dir = function(df) {
+  if(nrow(df) == 1) { #if only one lpayer to predict post throw - NA closest player features
+    data.frame(game_player_play_id = df$game_player_play_id,
+               closest_player_dist = NA,
+               closest_player_dir = NA)
+  } else {
+  combn(nrow(df), 2, FUN = function(id) {
+    i = id[1]
+    j = id[2]
+    
+    data.frame(
+      game_player_play_id = df$game_player_play_id[i],
+      other_player = df$game_player_play_id[j],
+      distance = get_dist(df$x[j] - df$x[i], df$y[j] - df$y[i]),
+      direction = get_dir(df$x[j] - df$x[i], df$y[j] - df$y[i])
+    )
+  }, simplify = FALSE) %>% bind_rows() %>%
+    pivot_longer(cols = c(game_player_play_id, other_player),
+                 names_to = "role",
+                 values_to = "game_player_play_id") %>%
+    select(-role) %>%
+    group_by(game_player_play_id) %>%
+    summarise(closest_player_dist = min(distance),
+              closest_player_dir = min(direction))
+  }
+}
+
+
 
 
 ############################################### Feature Derivation Functions ############################################### 
@@ -66,6 +102,7 @@ est_kinematics = function(df) {
     mutate(est_speed = get_dist(x_diff = x - lag(x), y_diff = y - lag(y))/0.1, #speed over previous -> current frame
            est_acc = (est_speed - lag(est_speed))/0.1, #acc over previous -> current frame (has direction)
            est_dir = get_dir(x_diff = x - lag(x), y_diff = y - lag(y))) %>%
+    mutate(est_speed = ifelse(est_speed == 0 & throw == "post", 0.01, est_speed)) %>% #no 0 speed values post throw
     ungroup()
   
   kin_df
@@ -316,6 +353,31 @@ plot_player_movement = function(group_id) {
     guides(colour = "none", shape = "none")
 }
 
+#same as above but plotting the actual game_player_play_id
+plot_player_movement_game_player_play_id = function(group_id) {
+  plot_df = train %>% 
+    filter(game_player_play_id == group_id) %>% #filter for only players to predict
+    select(frame_id, game_id, nfl_id, play_id, x, y, ball_land_x, ball_land_y, throw, player_side) %>%
+    ungroup() 
+  
+  game_id = plot_df$game_id %>% unique()
+  play_id = plot_df$play_id %>% unique()
+  nfl_id = plot_df$nfl_id %>% unique()
+  
+  #plot
+  ggplot(data = plot_df, mapping = aes(x = x, y = y, colour = frame_id, shape = throw)) + #plot the movement
+    geom_point(size = 3) +
+    scale_colour_gradient(low = "black", high = "green") +
+    geom_point(aes(fill = "True"), x = NA, y = NA, color = "green", size = 2.5) + #dummy variable for legend
+    scale_shape_manual(values = c(19, 1)) + #hollow is pre throw, filled is post throw
+    geom_point(mapping = aes(x = ball_land_x, y = ball_land_y, fill = "Ball Land"), colour = "red", size = 4) +
+    #geom_point(mapping = aes(x = pred_x, y = pred_y, fill = "Predicted"), colour = "orange", size = 2.5) +
+    scale_fill_manual(name = "", values = c("True" = 16, "Ball Land" = 16, "Predicted" = 16)) +
+    labs(title = paste0("Game: ", game_id, ", Play: ", play_id, ", Player ID: ", nfl_id)) +
+    theme_bw() +
+    guides(colour = "none", shape = "none")
+}
+
 
 #' visualize single player's movement along with prediction
 #' need to have predictions first
@@ -372,6 +434,48 @@ multi_player_movement = function(group_id, only_player_to_predict = TRUE) {
       .default =  col_numeric(c("black", "green"), domain = range(frame_id))(frame_id)
      )) %>% #add colours depending on offense or defense
         ungroup()
+  }
+  
+  game_id = plot_df$game_id %>% unique()
+  play_id = plot_df$play_id %>% unique()
+  
+  #plot 
+  ggplot(data = plot_df, mapping = aes(x = x, y = y, colour = colour, shape = throw)) + #plot the movement
+    geom_point(size = 3) +
+    scale_colour_identity() + 
+    scale_shape_manual(values = c(19, 1)) + #hollow is pre throw, filled is post throw
+    geom_point(mapping = aes(x = ball_land_x, y = ball_land_y), colour = "red", size = 4) +
+    scale_x_continuous(n.breaks = 10) +
+    scale_y_continuous(n.breaks = 10) +
+    labs(title = paste0("Game: ", game_id, ", Play: ", play_id)) +
+    theme_bw() +
+    guides(shape = "none")
+}
+
+
+
+#' same as above but group_id is game_play_id
+multi_player_movement_game_play_id = function(group_id, only_player_to_predict = TRUE) {
+  if (only_player_to_predict) {
+    plot_df = train %>% 
+      filter(game_play_id == group_id) %>% #filter for only players that were targeted
+      select(game_id, play_id, frame_id, x, y, ball_land_x, ball_land_y, throw, player_side, player_position, player_name) %>%
+      mutate(colour = case_when(
+        player_side == "Defense" ~ col_numeric(c("black", "blue"), domain = range(frame_id))(frame_id),
+        player_side == "Offense" & player_position == "QB" ~ col_numeric(c("black", "red"), domain = range(frame_id))(frame_id),
+        .default =  col_numeric(c("black", "green"), domain = range(frame_id))(frame_id)
+      )) %>% #add colours depending on offense or defense
+      ungroup()
+  } else {
+    plot_df = train %>% 
+      filter(game_play_id == group_id) %>% #filter for a single play
+      select(game_id, play_id, frame_id, x, y, ball_land_x, ball_land_y, throw, player_side, player_position, player_name) %>%
+      mutate(colour = case_when(
+        player_side == "Defense" ~ col_numeric(c("black", "blue"), domain = range(frame_id))(frame_id),
+        player_side == "Offense" & player_position == "QB" ~ col_numeric(c("black", "red"), domain = range(frame_id))(frame_id),
+        .default =  col_numeric(c("black", "green"), domain = range(frame_id))(frame_id)
+      )) %>% #add colours depending on offense or defense
+      ungroup()
   }
   
   game_id = plot_df$game_id %>% unique()
