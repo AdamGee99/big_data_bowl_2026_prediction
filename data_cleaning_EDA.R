@@ -201,7 +201,7 @@ registerDoParallel(cl)
 
 start = Sys.time()
 train_derived = train %>% 
-  #filter(game_play_id %in% 1:100) %>% #for testing speed
+  #filter(game_play_id %in% 1:20) %>% #for testing speed
   est_kinematics() %>%
   closest_player_dist_dir() %>%
   change_in_kinematics() %>%
@@ -243,11 +243,17 @@ ggplot(data = train_derived, mapping = aes(x = out_bounds_dir_diff, y = fut_dir_
 
 
 #closest_player_dir vs fut_dir
-train_derived %>% filter(player_side == "Offense") %>% ggplot(mapping = aes(x = closest_player_dir_diff, y = fut_dir_diff)) +
+train_derived %>% filter(player_side == "Offense") %>% ggplot(mapping = aes(x = closest_teammate_dir_diff, y = fut_dir_diff)) +
+  geom_scattermore(alpha = 0.1) + ylim(c(-30, 30))
+
+train_derived %>% filter(player_side == "Offense") %>% ggplot(mapping = aes(x = closest_opponent_dir_diff, y = fut_dir_diff)) +
   geom_scattermore(alpha = 0.1) + ylim(c(-30, 30))
 
 #closest_player_dir vs fut_dir
-train_derived %>% filter(player_side == "Defense") %>% ggplot(mapping = aes(x = closest_player_dir_diff, y = fut_dir_diff)) +
+train_derived %>% filter(player_side == "Defense") %>% ggplot(mapping = aes(x = closest_teammate_dir_diff, y = fut_dir_diff)) +
+  geom_scattermore(alpha = 0.1) + ylim(c(-30, 30))
+
+train_derived %>% filter(player_side == "Defense") %>% ggplot(mapping = aes(x = closest_opponent_dir_diff, y = fut_dir_diff)) +
   geom_scattermore(alpha = 0.1) + ylim(c(-30, 30))
 
 

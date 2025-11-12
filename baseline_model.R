@@ -84,7 +84,7 @@ data_mod_train = data_mod %>% filter(abs(fut_dir_diff) <= 50,
                                      abs(fut_a_diff) <= 8)
 
 #also get rid of plays that were cleary recorded incorrectly - the plays with way too many frames
-num_frames = data_mod %>% filter(throw == "post") %>% group_by(game_player_play_id) %>% summarise(n_frames = n())
+num_frames = train %>% filter(throw == "post") %>% group_by(game_player_play_id) %>% summarise(n_frames = n())
 num_frames$n_frames %>% hist(breaks = 50)
 num_frames$n_frames %>% summary()
 num_frames$n_frames %>% quantile(probs = c(0.999))
@@ -139,7 +139,7 @@ cat_test_acc_d = catboost.load_pool(test_d, label = test_d_labels$fut_a_diff)
 
 #fit - optionally set the test set
 dir_cat_o = catboost.train(learn_pool = cat_train_dir_o, test_pool = cat_test_dir_o, params = list(metric_period = 50,
-                                                                                                   #iterations = 3000,
+                                                                                                   #iterations = 100,
                                                                                                    od_type = "Iter", 
                                                                                                    od_wait = 100)) #num iterations to go past min test error before stop
 dir_cat_d = catboost.train(learn_pool = cat_train_dir_d, test_pool = cat_test_dir_d, params = list(metric_period = 50,

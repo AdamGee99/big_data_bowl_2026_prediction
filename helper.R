@@ -57,30 +57,57 @@ min_pos_neg_dir = function(dir_diff) {
 get_closest_player_min_dist_dir = function(df) {
   if(nrow(df) == 1) { #if only one player to predict post throw - NA closest player features
     data.frame(game_player_play_id = df$game_player_play_id,
-               closest_player_dist = NA,
-               closest_player_dir = NA)
+               closest_teammate_dist = NA,
+               closest_teammate_dir_diff = NA,
+               closest_opponent_dist = NA,
+               closest_opponent_dir_diff = NA)
   } else {
-  combn(nrow(df), 2, FUN = function(id) {
-    i = id[1]
-    j = id[2]
+    pairs = combn(nrow(df), 2, FUN = function(id) {
+      i = id[1]
+      j = id[2]
+      
+      data.frame(
+        player1 = df$game_player_play_id[i],
+        id1 = df$game_player_play_id[i],
+        player2 = df$game_player_play_id[j],
+        id2 = df$game_player_play_id[j],
+        other_player_distance = get_dist(df$x[j] - df$x[i], df$y[j] - df$y[i]),
+        other_player_dir = get_dir(df$x[j] - df$x[i], df$y[j] - df$y[i]),
+        player_side = df$player_side[i],
+        other_player_side = df$player_side[j],
+        player_dir = df$est_dir[i]
+      )
+    }, simplify = FALSE) %>% bind_rows()  %>% 
+      pivot_longer(cols = c(player1, player2),
+                   names_to = "role",
+                   values_to = "player1") %>%
+      mutate(player2 = ifelse(role == "player1", id2, id1)) %>% 
+      select(-c(id1, id2, role))
+    pairs
     
-    data.frame(
-      game_player_play_id = df$game_player_play_id[i],
-      other_player = df$game_player_play_id[j],
-      distance = get_dist(df$x[j] - df$x[i], df$y[j] - df$y[i]),
-      direction = get_dir(df$x[j] - df$x[i], df$y[j] - df$y[i])
-    )
-  }, simplify = FALSE) %>% bind_rows() %>%
-    pivot_longer(cols = c(game_player_play_id, other_player),
-                 names_to = "role",
-                 values_to = "game_player_play_id") %>%
-    select(-role) %>%
-    group_by(game_player_play_id) %>%
-    summarise(closest_player_dist = min(distance),
-              closest_player_dir = min(direction))
+    #closest teammate
+    closest_teamate = pairs %>%
+      filter(player_side == other_player_side) %>% 
+      group_by(player1) %>%
+      mutate(distance = min(other_player_distance)) %>% 
+      filter(distance == other_player_distance) %>%
+      mutate(closest_teammate_dir_diff = min_pos_neg_dir(player_dir - other_player_dir)) %>% 
+      rename(closest_teammate_dist = distance, game_player_play_id = player1) %>%
+      select(game_player_play_id, closest_teammate_dist, closest_teammate_dir_diff)
+    
+    #closest opponent
+    closest_opponent =  pairs %>%
+      filter(player_side != other_player_side) %>% 
+      group_by(player1) %>%
+      mutate(distance = min(other_player_distance)) %>% 
+      filter(distance == other_player_distance) %>%
+      mutate(closest_opponent_dir_diff = min_pos_neg_dir(player_dir - other_player_dir)) %>% 
+      rename(closest_opponent_dist = distance, game_player_play_id = player1) %>%
+      select(game_player_play_id, closest_opponent_dist, closest_opponent_dir_diff)
+    
+    full_join(closest_teamate, closest_opponent, by = "game_player_play_id")
   }
 }
-
 
 
 
@@ -128,10 +155,7 @@ change_in_kinematics = function(df) {
 }
 
 
-#' function that adds distance and direction to nearest player on opposing team
-#' 
-#' 
-#' NOT SURE IF THIS IS MAKING SURE THAT CLOSEST PLAYER IS OPPOSING SIDE
+#' function that adds distance and direction to nearest teammate and opposing player
 closest_player_dist_dir = function(df) {
   game_play_ids = df$game_play_id %>% unique()
   
@@ -159,10 +183,7 @@ closest_player_dist_dir = function(df) {
   }
   #get direction diff
   closest_results = closest_results %>%
-    arrange(game_play_id, game_player_play_id, frame_id) %>% #arrange in right order
-    mutate(closest_player_dir_diff = min_pos_neg_dir(est_dir - closest_player_dir)) %>% #difference in current direction and direction of closest player)
-    select(-c(closest_player_dir))
-  
+    arrange(game_play_id, game_player_play_id, frame_id) #arrange in right order
   closest_results
 }
 
