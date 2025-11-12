@@ -29,16 +29,12 @@ source(here("helper.R"))
 
 ############################################### Cleaning ############################################### 
 
-
 #clean the types
 str(train_X)
 train_X = train_X %>% mutate(player_to_predict = as.logical(player_to_predict), #change player_to_predict to logical
                              player_birth_date = ymd(player_birth_date), #change player_birth_date to date
                              across(where(is.character), as.factor)) #change remaining character types to factors
-
 str(train_Y) #nothing to change
-
-
 
 #join datasets (add movement after the throw to train_X)
 
@@ -83,10 +79,7 @@ rm(train_X, train_Y)
 #' speed is in yards/s, acceleration is in yards/s^2, 
 #' direction is angle of player motion in degrees, orientation is orientation of player in degrees (these might be hard to calculate)
 
-
 #group_id is a single player on a single play
-#lag_frames is the number of previous frames to calculate s, a
-#lead is the number of future frames to calculate s, a
 plot_speed_acc(group_id = 1, lag_frames = 1, lead_frames = 1) #using lead frame in calc
 plot_speed_acc(group_id = 1, lag_frames = 1, lead_frames = 0) #using no future data
 
@@ -95,31 +88,10 @@ plot_speed_acc(group_id = 22, lag_frames = 1, lead_frames = 0) #using no future 
 
 plot_speed_acc(group_id = 432, lag_frames = 1, lead_frames = 1) #using lead frame in calc
 plot_speed_acc(group_id = 432, lag_frames = 1, lead_frames = 0) #using no future data
-
 #' using lead frame seems to give better estimates of speed and acceleration
-
 #' 1 frame of lag and 1 frame of lead seems to give best estimate compared to recorded, good balance of smooth over two frames but not too smooth
 
-
-#' I think what we need to do here is use a model that predicts frame_id + 1 x and y while only using previous frame's x,y, 
-#' then use that prediction to get better estimates of current speed/acceleration, 
-#' then use another model to get final predictions using the better curr speed/acc - maybe keep iterating until predictions converge
-
-
-#' can I use the fact the speed and acceleration right before throw was calculated using x,y's after throw to my advantage????
-
-#' I swear some recorded accelerations are wrong (cur_group_id == 1, cur_group_id == 2823), acceleration becomes way too high right before throw
-#' I think maybe drop recorded a and just use your estimated a from the player's positioning
-#' but experiment with this, see what gives better CV
-
-
-
-
-#' now estimate orientation and direction of motion!!
-#' 
-#' 
 #' I think direction is simple to calculate but orientation might be unknown
-#' what if we make a model to predict a players orientation then use that in subsequent final model?
 
 #not sure if we need to use leading frames here..
 plot_dir(group_id = 1, lag_frames = 1, lead_frames = 1) #using lead frame in calc
@@ -131,42 +103,24 @@ plot_dir(group_id = 22, lag_frames = 1, lead_frames = 0) #using no future data
 plot_dir(group_id = 432, lag_frames = 1, lead_frames = 1) #using lead frame in calc
 plot_dir(group_id = 432, lag_frames = 1, lead_frames = 0) #using no future data
 
-
 #again we see that using lead frame is important here, 
 #do the same process as above? predict from past x,y ... update past x,y, predict from better past x,y ... repeat until convergence...
 
 
 
-#direction should be very important, like especially at speed, the player is going to continue going in the same direction they are going
 
+############################################### Visualization ############################################### 
 
-
-## orientation should be important but it's impossible to estimate purely from x,y positions. They use sensors in players shoulder pads...
-
-#I guess skip using it for now, but come back to it later
-
-
-
-
-
-
-############################################### EDA ############################################### 
-
-
-#first lets visualize the player's movements
-train$game_id %>% unique() %>% length() #272 games
-train$nfl_id %>% unique() %>% length() #1384 player ids
-
+#3 players on the same play
 plot_player_movement(group_id = 1)
 plot_player_movement(group_id = 2)
-
+plot_player_movement(group_id = 3)
+#all of them on the same play
 multi_player_movement(1)
-#plot all players - need to not have filtered earlier in train
+#all players on the same play but include players_to_predict == FALSE
 multi_player_movement(1, only_player_to_predict = FALSE)
 
-
-
-
+#multiple plots at the same time
 num_plots = 4
 wrap_plots(lapply(1:num_plots, multi_player_movement),
            ncol = ceiling(sqrt(num_plots)),
@@ -174,14 +128,7 @@ wrap_plots(lapply(1:num_plots, multi_player_movement),
   plot_layout(guides = "collect")
 #blue is defense, green is offense
 
-#filtering for all players in play gives interesting results too 
 
-
-
-
-### see the relationships between response and features now
-
-#find out whats important
 
 #plot player movement with direction
 group_id = 53
@@ -192,7 +139,6 @@ wrap_plots(list(plot_player_movement(group_id = group_id),
 #clearly very important, tells us where the player is heading
 #probably the most important feature
 
-
 #plot player movement with speed, acceleration
 wrap_plots(list(plot_player_movement(group_id = group_id),
                 plot_speed_acc(group_id = group_id, lag_frames = 1, lead_frames = 1)),
@@ -201,18 +147,12 @@ wrap_plots(list(plot_player_movement(group_id = group_id),
 #also important, tells us how far away the position at the next frame will be
 
 
-#' I think the challenge is getting the correct direction, speed, acc of player in the current frame
-#' at every frame, we should be predicting not just the next x,y but also need to update dir, s, a 
-#' these will also have to be models, but they all depend on eachtother so it's kind of weird...
-#' Once you have that, predicting the next frame seems very simple (like you don't even need a model, you can predict the value exactly using physics formula...)
-#' Use all the extra features (where ball is landing, player info, defender info, ...) to predict direction/speed/acc
-
-
-
 
 ############################################### Deriving New Features ############################################### 
 
 #' new features to add:
+#' 
+#'   DONE:
 #'  -change in dir, s, a between current and previous frame
 #'  -difference in current frames direction and direction of ball land (x,y)
 #'  -distance where the player currently is to where the ball will land
@@ -221,7 +161,6 @@ wrap_plots(list(plot_player_movement(group_id = group_id),
 #'  
 #'  
 #'  TO DO: (doing most of these means we need to use the players not in players_to_predict to derive)
-#'  
 #'  -direction to nearest offensive player
 #'  -distance to nearest offensive player
 #'  -speed of nearest offensive player
@@ -238,9 +177,8 @@ wrap_plots(list(plot_player_movement(group_id = group_id),
 #'  
 
 
-
-
 #' first add game_player_play_id and game_play_id
+#' these are unique ids for all the players in single plays and the plays
 train = train %>% 
   group_by(game_id, play_id) %>%
   mutate(game_play_id = cur_group_id()) %>% #game_play_id
@@ -250,37 +188,33 @@ train = train %>%
          prop_play_complete = frame_id/max(frame_id)) %>% #proportion of play complete - standardizes frame ID %>%
   ungroup()
 
+
 #get min dist,dir to closest player for players_to_predict
 #this is done in parallel
 library(foreach)
 library(doParallel)
 
 # Set up cluster
-num_cores = parallel::detectCores() - 10
+num_cores = 10
 cl = makeCluster(num_cores)
 registerDoParallel(cl)
 
 start = Sys.time()
 train_derived = train %>% 
   #filter(game_play_id %in% 1:100) %>% #for testing speed
-  closest_player_dist_dir()
+  est_kinematics() %>%
+  closest_player_dist_dir() %>%
+  change_in_kinematics() %>%
+  derived_features()
 end = Sys.time()
 end-start
 #write.csv(train_derived, file = here("data", "train_closest_dir_dist.csv"), row.names = FALSE)
-
 #since we only fit on prop_play_complete > 0.4, just derive the features on that!!!!!!!!
-
-#add other derived features that only depend on need player_to_predict (only use players own info)
-train_derived = train_derived %>%
-  filter(player_to_predict) %>% #only derive the new features on player_to_predict
-  est_kinematics() %>% #add estimated direction, speed, acceleration
-  change_in_kinematics() %>% #add change in previous -> current and current -> next frame in direction, speed, acceleration
-  derived_features() #add derived features
 
 colnames(train_derived)
 
 #save cleaned data
-write.csv(train_derived, file = here("data", "train_clean.csv"), row.names = FALSE)
+#write.csv(train_derived, file = here("data", "train_clean.csv"), row.names = FALSE)
 
 
 

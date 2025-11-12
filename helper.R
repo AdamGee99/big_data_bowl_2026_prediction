@@ -55,7 +55,7 @@ min_pos_neg_dir = function(dir_diff) {
 #' outputs the min distance and direction to the closest other player
 #' input df must have: game_player_play_id, x, y for each player in the frame
 get_closest_player_min_dist_dir = function(df) {
-  if(nrow(df) == 1) { #if only one lpayer to predict post throw - NA closest player features
+  if(nrow(df) == 1) { #if only one player to predict post throw - NA closest player features
     data.frame(game_player_play_id = df$game_player_play_id,
                closest_player_dist = NA,
                closest_player_dir = NA)
@@ -129,74 +129,41 @@ change_in_kinematics = function(df) {
 
 
 #' function that adds distance and direction to nearest player on opposing team
-
+#' 
+#' 
+#' NOT SURE IF THIS IS MAKING SURE THAT CLOSEST PLAYER IS OPPOSING SIDE
 closest_player_dist_dir = function(df) {
   game_play_ids = df$game_play_id %>% unique()
   
   closest_results = foreach(game_play = game_play_ids, .combine = rbind, .packages = c("tidyverse", "doParallel", "here")) %dopar% { #loop through the plays
     source(here("helper.R"))
     curr_game_play = df %>% filter(game_play_id == game_play)
-    num_frames = curr_game_play$frame_id %>% max()
+    frames = curr_game_play$frame_id %>% unique()
     
     #loop through the frames in a play
-    foreach(curr_frame_id = 1:num_frames, .combine = rbind) %do% {
-      #all player data in current frame
-      all_players_curr_frame = curr_game_play %>% filter(frame_id == curr_frame_id)
+    foreach(frame = frames, .combine = rbind) %do% {
+      #all players in this frame
+      curr_frame_all_players = curr_game_play %>% 
+        filter(frame_id == frame) 
       
-      #players to get min dist for
-      players_to_predict = all_players_curr_frame %>% filter(player_to_predict) %>% pull(nfl_id)
+      #get closest player features for players to predict
+      closest_features = curr_frame_all_players %>%
+        filter(player_to_predict) %>%
+        get_closest_player_min_dist_dir()
       
-      #loop through the players we need to get min dist,dir for 
-      foreach(player = players_to_predict, .combine = rbind) %do% {
-        
-        #the player were interested in
-        player_info = all_players_curr_frame %>% filter(nfl_id == player) 
-        
-        targ_player_side = player_info$player_side
-        targ_player_curr_x = player_info$x
-        targ_player_curr_y = player_info$y
-        
-        #other players on opposing side
-        others = all_players_curr_frame %>% filter(player_side != targ_player_side & player_role != "Passer")
-        min_dist_diff = Inf
-        
-        if (nrow(others) == 0) { #if no other players have tracking data, just set it to NA
-          #store all the info - derive min dist and direction
-          player_info$closest_player_id = NA
-          player_info$closest_player_x = NA
-          player_info$closest_player_y = NA
-          player_info$closest_player_dist = NA
-          player_info$closest_player_dir = NA
-        } else {
-          #loop through the other players to get min dist and dir
-          foreach(i = 1:nrow(others), .combine = rbind) %do% {
-            
-            curr_other_player = others[i,]
-            curr_other_x_diff = targ_player_curr_x - curr_other_player$x
-            curr_other_y_diff = targ_player_curr_y - curr_other_player$y
-            
-            #update min diff
-            if (get_dist(curr_other_x_diff, curr_other_y_diff) < min_dist_diff) { 
-              #store all the info - derive min dist and direction
-              player_info$closest_player_id = curr_other_player$nfl_id
-              player_info$closest_player_x = curr_other_player$x
-              player_info$closest_player_y = curr_other_player$y
-              player_info$closest_player_dist = get_dist(curr_other_x_diff, curr_other_y_diff)
-              player_info$closest_player_dir = get_dir(player_info$x - curr_other_player$x, player_info$y - curr_other_player$y)
-            }
-          }
-          player_info
-        }
-      }
+      #join the closest features back
+      curr_frame_all_players = curr_frame_all_players %>%
+        full_join(closest_features, by = "game_player_play_id")
+      curr_frame_all_players
     }
   }
-  closest_results = closest_results %>% arrange(game_play_id, game_player_play_id, frame_id)
-  closest_results
-  
-  #convert directions to difference in directions
+  #get direction diff
   closest_results = closest_results %>%
+    arrange(game_play_id, game_player_play_id, frame_id) %>% #arrange in right order
     mutate(closest_player_dir_diff = min_pos_neg_dir(est_dir - closest_player_dir)) %>% #difference in current direction and direction of closest player)
     select(-c(closest_player_dir))
+  
+  closest_results
 }
 
 
