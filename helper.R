@@ -130,6 +130,8 @@ est_kinematics = function(df) {
            est_acc = (est_speed - lag(est_speed))/0.1, #acc over previous -> current frame (has direction)
            est_dir = get_dir(x_diff = x - lag(x), y_diff = y - lag(y))) %>%
     mutate(est_speed = ifelse(est_speed == 0 & throw == "post", 0.01, est_speed)) %>% #no 0 speed values post throw
+    mutate(est_speed = ifelse(throw == "post", est_speed, s), #use true recorded values pre throw if possible
+           est_dir = ifelse(throw == "post", est_dir, dir)) %>%
     ungroup()
   
   kin_df
@@ -148,7 +150,7 @@ change_in_kinematics = function(df) {
            fut_dir_diff = min_pos_neg_dir(lead(est_dir) - est_dir), #diff in dir from current -> next frame
            fut_s_diff = lead(est_speed) - est_speed, #diff in speed from current -> next frame
            fut_a_diff = lead(est_acc) - est_acc #diff in acc from current -> next frame
-           ) %>% 
+    ) %>%
     ungroup()
   
   change_kin_df
