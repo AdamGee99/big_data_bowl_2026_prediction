@@ -93,6 +93,7 @@ long_player_plays = num_frames %>% filter(n_frames >= 50) %>% pull(game_player_p
 train %>% filter(game_player_play_id %in% c(long_player_plays)) %>%
   pull(game_play_id) %>% unique()
 multi_player_movement_game_play_id(812) #this is wrong
+multi_player_movement_game_play_id(11677) #this is fine
 
 #get rid of this play
 data_mod_train = data_mod_train %>% filter(!(game_play_id %in% 812))
@@ -102,8 +103,7 @@ data_mod_train = data_mod_train %>% filter(!(game_play_id %in% 812))
 
 #drop unnecessary features
 unnnecessary_features = c("game_player_play_id", "game_play_id", "player_role",
-                          "closest_player_id", "frame_id", "x", "y", 
-                          "ball_land_x", "ball_land_y", "player_name")
+                          "frame_id", "x", "y", "ball_land_x", "ball_land_y", "player_name")
 cat_train_df = data_mod_train %>% select(-all_of(unnnecessary_features))
 cat_test_df = data_mod_test %>%select(-all_of(unnnecessary_features))
 

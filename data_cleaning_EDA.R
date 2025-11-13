@@ -185,7 +185,7 @@ train = train %>%
   ungroup() %>%
   group_by(game_id, nfl_id, play_id) %>%
   mutate(game_player_play_id = cur_group_id(),
-         prop_play_complete = frame_id/max(frame_id)) %>% #proportion of play complete - standardizes frame ID %>%
+         prop_play_complete = frame_id/max(frame_id)) %>% #proportion of play complete - standardizes frame ID
   ungroup()
 
 
@@ -201,20 +201,20 @@ registerDoParallel(cl)
 
 start = Sys.time()
 train_derived = train %>% 
-  #filter(game_play_id %in% 1:20) %>% #for testing speed
+  #filter(game_play_id %in% 1:100) %>% #for testing speed
   est_kinematics() %>%
   closest_player_dist_dir() %>%
   change_in_kinematics() %>%
   derived_features()
 end = Sys.time()
 end-start
-#write.csv(train_derived, file = here("data", "train_closest_dir_dist.csv"), row.names = FALSE)
+write.csv(train_derived, file = here("data", "train_closest_dir_dist.csv"), row.names = FALSE)
 #since we only fit on prop_play_complete > 0.4, just derive the features on that!!!!!!!!
 
 colnames(train_derived)
 
 #save cleaned data
-#write.csv(train_derived, file = here("data", "train_clean.csv"), row.names = FALSE)
+write.csv(train_derived, file = here("data", "train_clean.csv"), row.names = FALSE)
 
 
 
@@ -225,7 +225,7 @@ colnames(train_derived)
 
 #ball_land_dir_diff vs fut_dir_diff
 ball_land_dir_diff_v_fut_dir_diff = ggplot(data = train, mapping = aes(x = ball_land_dir_diff, y = fut_dir_diff)) + 
-  geom_scattermore(alpha = 0.05)
+  geom_scattermore(alpha = 0.01)
 ball_land_dir_diff_v_fut_dir_diff
 
 ball_land_dir_diff_v_fut_dir_diff + ylim(c(-30, 30))
@@ -243,9 +243,6 @@ ggplot(data = train_derived, mapping = aes(x = out_bounds_dir_diff, y = fut_dir_
 
 
 #closest_player_dir vs fut_dir
-train_derived %>% filter(player_side == "Offense") %>% ggplot(mapping = aes(x = closest_teammate_dir_diff, y = fut_dir_diff)) +
-  geom_scattermore(alpha = 0.1) + ylim(c(-30, 30))
-
 train_derived %>% filter(player_side == "Offense") %>% ggplot(mapping = aes(x = closest_opponent_dir_diff, y = fut_dir_diff)) +
   geom_scattermore(alpha = 0.1) + ylim(c(-30, 30))
 
