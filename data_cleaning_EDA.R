@@ -108,7 +108,6 @@ plot_dir(group_id = 432, lag_frames = 1, lead_frames = 0) #using no future data
 
 
 
-
 ############################################### Visualization ############################################### 
 
 #3 players on the same play
@@ -148,6 +147,7 @@ wrap_plots(list(plot_player_movement(group_id = group_id),
 
 
 
+
 ############################################### Deriving New Features ############################################### 
 
 #' new features to add:
@@ -160,20 +160,23 @@ wrap_plots(list(plot_player_movement(group_id = group_id),
 #'  -direction to nearest out of bounds point
 #'  
 #'  
-#'  TO DO: (doing most of these means we need to use the players not in players_to_predict to derive)
+#'   (doing most of these means we need to use the players not in players_to_predict to derive)
 #'  -direction to nearest offensive player
 #'  -distance to nearest offensive player
+#'  
+#'  TO DO:
 #'  -speed of nearest offensive player
 #'  -direction of nearest offensive player (the defense is trying to copy/predict this)
-#'  
 #'  -direction to quarterback
 #'  
 #'  -update ball_land_dir_diff - update to be the nearest direction to a circle around ball land x,y 
 #'                               player just needs to be in this radius to catch, not exactly on the ball land x,y point
 #'                               
-#'                               
 #'  -avg_dir_offense - the average direction the offense is headed (maybe only take average of people close to ball_land?)
 #'  -avg_speed_offense- same as above but speed
+#'  
+#'  
+#'  -Voronoi features - this captures the space which players are controlling in the field 
 #'  
 
 
@@ -181,34 +184,42 @@ wrap_plots(list(plot_player_movement(group_id = group_id),
 #' these are unique ids for all the players in single plays and the plays
 train = train %>% 
   group_by(game_id, play_id) %>%
-  mutate(game_play_id = cur_group_id()) %>% #game_play_id
+  mutate(game_play_id = cur_group_id(), #game_play_id
+         prop_play_complete = frame_id/max(frame_id)) %>% #proportion of play complete - standardizes frame ID
   ungroup() %>%
   group_by(game_id, nfl_id, play_id) %>%
-  mutate(game_player_play_id = cur_group_id(),
-         prop_play_complete = frame_id/max(frame_id)) %>% #proportion of play complete - standardizes frame ID
+  mutate(game_player_play_id = cur_group_id())
   ungroup()
 
+train$game_play_id %>% unique() %>% length() #14,108 plays
+train$game_player_play_id %>% unique() %>% length() #173,150 player-plays
 
-#get min dist,dir to closest player for players_to_predict
+
+#derive most features here
+train_derived = train %>%
+  est_kinematics() %>% 
+  change_in_kinematics() %>%
+  derived_features()
+
+#get remaining closest player features
+#this takes the longest
+#only do it on prop_play_complete >= 0.3 since thats at least what we train the models on
+
 #this is done in parallel
 library(foreach)
 library(doParallel)
-
 # Set up cluster
-num_cores = 10
+num_cores = 14
 cl = makeCluster(num_cores)
 registerDoParallel(cl)
-
 start = Sys.time()
-train_derived = train %>% 
-  #filter(game_play_id %in% 1:100) %>% #for testing speed
-  est_kinematics() %>%
-  closest_player_dist_dir() %>%
-  change_in_kinematics() %>%
-  derived_features()
+close_player_features = train %>% 
+  filter(game_play_id %in% 1,#for testing speed
+         prop_play_complete >= 0.3) %>% #not using the start of plays
+  closest_player_dist_dir()
 end = Sys.time()
 end-start
-write.csv(train_derived, file = here("data", "train_closest_dir_dist.csv"), row.names = FALSE)
+#write.csv(train_derived, file = here("data", "train_closest_dir_dist.csv"), row.names = FALSE)
 #since we only fit on prop_play_complete > 0.4, just derive the features on that!!!!!!!!
 
 colnames(train_derived)
@@ -219,20 +230,25 @@ write.csv(train_derived, file = here("data", "train_clean.csv"), row.names = FAL
 
 
 
+#test if using recorded values to calculate change in kinematic where possible is better
+
+ggplot(train_new, aes(x = train_new$fut_dir_diff, y = train$fut_dir_diff)) +
+  geom_scattermore(alpha = 0.04)
+                             
+
+
+
 
 ############################################### Continue EDA ############################################### 
 
 
-#ball_land_dir_diff vs fut_dir_diff
-ball_land_dir_diff_v_fut_dir_diff = ggplot(data = train, mapping = aes(x = ball_land_dir_diff, y = fut_dir_diff)) + 
-  geom_scattermore(alpha = 0.01)
-ball_land_dir_diff_v_fut_dir_diff
 
-ball_land_dir_diff_v_fut_dir_diff + ylim(c(-30, 30))
+#ball_land_dir_diff vs fut_dir_diff
+ball_land_dir_diff_v_fut_dir_diff = ggplot(data = train_new %>% filter(prop_play_complete >= 0.4), mapping = aes(x = ball_land_dir_diff, y = fut_dir_diff)) + 
+  geom_scattermore(alpha = 0.01) + ylim(c(-30,30))
+ball_land_dir_diff_v_fut_dir_diff
 #' negative relationship here makes sense
 #' if the min distance to where you need to go is -15deg, then you should start heading positive
-#' 
-#' but whats up with these horizontal lines?
 
 
 
