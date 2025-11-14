@@ -14,48 +14,15 @@ library(scattermore)
 #' 
 #' 
 #' 
-#' 
-#' 
 #' DO MORE EDA, figure out if derived features need manipulation
-#' also exclude any weird plays on training... or investigate anything else wrong with the data...
 
 
-############################################### Baseline Model ############################################### 
-
-#import data
-train = read.csv(file = here("data", "train_clean.csv"))
-
+############################################### Baseline Model CV ############################################### 
 source(here("helper.R"))
 
-#' right now only training on players_to_predict, not sure if it makes sense to include the other players?
-#' 
-#' 
-#' THIS IS ALL EDA - MOVE THIS TO ANOTHER FILE NAD ONLY FIT MODELS AND PREDICT HERE
+#import data
+data_mod = read.csv(file = here("data", "data_mod.csv"))
 
-#modelling the future change in dir, s, a
-data_mod = train %>% 
-  #order the columns
-  select(fut_dir_diff, fut_s_diff, fut_a_diff, game_player_play_id, game_play_id, everything()) %>%
-  #add estimation to post throw
-   mutate(est_dir = ifelse(throw == "pre", dir, est_dir), #use recorded dir, s if possible over estimated...
-          est_speed = ifelse(throw == "pre", s, est_speed))  %>% #do not use recorded a since its a scalar, we want vector
-  #de-select unnecessary feature columns - things that can't be calculated post throw
-  select(-c(game_id, nfl_id, play_id, o, player_to_predict, s, a, dir,
-          player_birth_date, num_frames_output, num_frames)) %>%
-  mutate(across(where(is.character), as.factor)) %>%
-  mutate(est_speed = ifelse(est_speed == 0, 0.01, est_speed)) %>% #0.01 is the min recorded/estimated speed
-  mutate(fut_s = lead(est_speed)) %>%
-  filter(!is.na(fut_dir_diff) & !is.na(fut_s_diff) & !is.na(fut_a_diff)) #remove NA responses
-
-#what proportion of play being complete is ball thrown
-data_mod %>% filter(throw == "post" & lag(throw) == "pre") %>% pull(prop_play_complete) %>% hist()
-#min is 0.225 - fit models mostly on post-throw
-prop_play_cutoff = 0.4 #this is the cutoff for the amount of play being complete we will fit the model on
-#set at 40% play completion right now
-
-data_mod = data_mod %>% 
-  filter(throw == "post" | throw == "pre" & lead(throw) == "post" | prop_play_complete >= 0.4)
-#mutate 0 est_speeds to be small positive
 
 #' 80% train, 20% test - by play groups
 set.seed(1999)
@@ -63,40 +30,6 @@ n_plays = data_mod %>% pull(game_play_id) %>% unique() %>% length() #9,109 plays
 split = sample(unique(data_mod$game_play_id), size = round(0.8*n_plays))
 data_mod_train = data_mod %>% filter(game_play_id %in% split)
 data_mod_test = data_mod %>% filter(!(game_play_id %in% split))
-
-#filter out the dir,s,a diffs in training set that are clearly impossible
-data_mod %>% filter(throw == "post") %>% select(fut_dir_diff, fut_s_diff, fut_a_diff) %>% summary()
-
-#histograms of response
-data_mod %>% filter(throw == "post") %>% pull(fut_dir_diff) %>% hist(breaks = 300, xlim = c(-30, 30))
-data_mod %>% filter(throw == "post") %>% pull(fut_s_diff) %>% hist(breaks = 300, xlim = c(-2, 2))
-data_mod %>% filter(throw == "post") %>% pull(fut_s) %>% hist(breaks = 200)
-data_mod %>% filter(throw == "post") %>% pull(fut_a_diff) %>% hist(breaks = 600, xlim = c(-11, 11))
-
-data_mod %>% filter(throw == "post") %>% pull(fut_dir_diff) %>% quantile(probs = c(0.001, 0.01, 0.99, 0.999), na.rm = TRUE)
-data_mod %>% filter(throw == "post") %>% pull(fut_s_diff) %>% quantile(probs = c(0.001, 0.01, 0.99, 0.999), na.rm = TRUE)
-data_mod %>% filter(throw == "post") %>% pull(fut_s) %>% quantile(probs = c(0.001, 0.01, 0.99, 0.999), na.rm = TRUE)
-data_mod %>% filter(throw == "post") %>% pull(fut_a_diff) %>% quantile(probs = c(0.001, 0.01, 0.99, 0.999), na.rm = TRUE)
-
-#filter out the 1% highest and lowest dir, s and a, these are probably weird data/calculation issues
-data_mod_train = data_mod %>% filter(abs(fut_dir_diff) <= 50,
-                                     abs(fut_s_diff) <= 1.5,
-                                     abs(fut_a_diff) <= 8)
-
-#also get rid of plays that were cleary recorded incorrectly - the plays with way too many frames
-num_frames = train %>% filter(throw == "post") %>% group_by(game_player_play_id) %>% summarise(n_frames = n())
-num_frames$n_frames %>% hist(breaks = 50)
-num_frames$n_frames %>% summary()
-num_frames$n_frames %>% quantile(probs = c(0.999))
-#identify plays that run too long
-long_player_plays = num_frames %>% filter(n_frames >= 50) %>% pull(game_player_play_id)
-train %>% filter(game_player_play_id %in% c(long_player_plays)) %>%
-  pull(game_play_id) %>% unique()
-multi_player_movement_game_play_id(812) #this is wrong
-multi_player_movement_game_play_id(11677) #this is fine
-
-#get rid of this play
-data_mod_train = data_mod_train %>% filter(!(game_play_id %in% 812))
 
 
 #fit models
@@ -139,20 +72,20 @@ cat_test_acc_d = catboost.load_pool(test_d, label = test_d_labels$fut_a_diff)
 
 #fit - optionally set the test set
 dir_cat_o = catboost.train(learn_pool = cat_train_dir_o, test_pool = cat_test_dir_o, params = list(metric_period = 50,
-                                                                                                   #iterations = 100,
+                                                                                                   iterations = 500,
                                                                                                    od_type = "Iter", 
                                                                                                    od_wait = 100)) #num iterations to go past min test error before stop
 dir_cat_d = catboost.train(learn_pool = cat_train_dir_d, test_pool = cat_test_dir_d, params = list(metric_period = 50,
-                                                                                                   #iterations = 3000,
+                                                                                                   iterations = 500,
                                                                                                    od_type = "Iter", 
                                                                                                    od_wait = 50))
 
 speed_cat_o = catboost.train(learn_pool = cat_train_speed_o, test_pool = cat_test_speed_o, params = list(metric_period = 50,
-                                                                                                         #iterations = 1000,
+                                                                                                         iterations = 500,
                                                                                                          od_type = "Iter", 
                                                                                                          od_wait = 100))
 speed_cat_d = catboost.train(learn_pool = cat_train_speed_d, test_pool = cat_test_speed_d, params = list(metric_period = 50,
-                                                                                                         #iterations = 1000,
+                                                                                                         iterations = 500,
                                                                                                          od_type = "Iter", 
                                                                                                          od_wait = 100))
 #calculate residual variance for log-bias correction
@@ -162,11 +95,11 @@ speed_cat_d = catboost.train(learn_pool = cat_train_speed_d, test_pool = cat_tes
 
 
 acc_cat_o = catboost.train(learn_pool = cat_train_acc_o, test_pool = cat_test_acc_o, params = list(metric_period = 50,
-                                                                                                   #iterations = 3000,
+                                                                                                   iterations = 500,
                                                                                                    od_type = "Iter", 
                                                                                                    od_wait = 100))
 acc_cat_d = catboost.train(learn_pool = cat_train_acc_d, test_pool = cat_test_acc_d, params = list(metric_period = 50,
-                                                                                                   #iterations = 3000,
+                                                                                                   iterations = 500,
                                                                                                    od_type = "Iter", 
                                                                                                    od_wait = 100))
 
@@ -216,7 +149,7 @@ plan(multisession, workers = 10)
 game_play_ids = data_mod_test_pred$game_play_id %>% unique()
 
 #for testing
-#game_play_ids = game_play_ids[1:10]
+game_play_ids = game_play_ids[1:10]
 
 #this is my predict() function
 
@@ -233,7 +166,7 @@ start = Sys.time()
 with_progress({
   p = progressor(steps = length(game_play_ids)) #progress
   
-  results = foreach(group_id = game_play_ids, .combine = rbind, .packages = c("tidyverse", "doParallel", "catboost")) %dopar% {
+  results = foreach(group_id = game_play_ids, .combine = rbind, .packages = c("tidyverse", "doParallel", "catboost")) %do% {
     p(sprintf("Iteration %d", group_id)) #progress 
     
     #single player on single play
@@ -272,10 +205,10 @@ with_progress({
         #closest player features
         closest_player_features = get_closest_player_min_dist_dir(curr_frame_all_players) 
         curr_frame_all_players = curr_frame_all_players %>% 
-          select(-c(closest_player_dist)) %>% #deselect the closest player columns so we can merge the right ones
-          full_join(closest_player_features, by = c("game_player_play_id")) %>% #join the min dist/dir
-          mutate(closest_player_dir_diff = min_pos_neg_dir(est_dir - closest_player_dir)) %>%
-          select(-closest_player_dir) #deselect the actual direction
+          select(-starts_with("closest_")) %>% #deselect the closest player columns so we can merge the right ones
+          full_join(closest_player_features, by = c("game_player_play_id")) #%>% #join the min dist/dir
+          #mutate(closest_player_dir_diff = min_pos_neg_dir(est_dir - closest_player_dir)) %>%
+          #select(-closest_player_dir) #deselect the actual direction
         
         #all other features
         #need previous frame to compute lag stuff
@@ -289,6 +222,11 @@ with_progress({
           change_in_kinematics() %>%
           derived_features() %>%
           filter(frame_id == frame) #filter for only current frame
+        
+        
+        ######### THERES NO DIR COLUMN HERE !!!!
+        
+        
       }
       
       #predict next x,y
@@ -314,6 +252,7 @@ with_progress({
                  pred_s = ifelse(player_side == "Offense", 
                                  catboost.predict(speed_cat_o, cat_pred_df), 
                                  catboost.predict(speed_cat_d, cat_pred_df)),
+                 pred_s = exp(pred_s),
                  pred_a = est_acc + ifelse(player_side == "Offense", 
                                            catboost.predict(acc_cat_o, cat_pred_df), 
                                            catboost.predict(acc_cat_d, cat_pred_df)))
@@ -359,6 +298,21 @@ end - start
 #' 
 
 
+
+
+
+#' TO DO 
+#' 
+#' python def has a library that can call R code so that's how the API will handle it
+#' can save catboost models as a .parquet file so python can run it quickly
+
+
+
+
+
+
+
+
 #the true x,y,dir,s,a values
 true_vals = data_mod_test %>% 
   rename(true_dir = est_dir, true_s = est_speed, true_a = est_acc, true_x = x, true_y = y) %>% 
@@ -399,7 +353,7 @@ ggplot(data = results_pred, mapping = aes(x = true_s, y = pred_s)) +
   labs(x = "True Speed", y = "Predicted Speed")
 
 #true vs predicted acc
-ggplot(data = results_pred, mapping = aes(x = true_a, y = pred_a)) +
+acc = ggplot(data = results_pred, mapping = aes(x = true_a, y = pred_a)) +
   geom_scattermore() +
   xlim(c(min(c(results_pred$pred_a, results_pred$true_a))), 
        max(c(results_pred$pred_a, results_pred$true_a))) + 
@@ -407,6 +361,8 @@ ggplot(data = results_pred, mapping = aes(x = true_a, y = pred_a)) +
        max(c(results_pred$pred_a, results_pred$true_a))) +
   theme_bw() +
   labs(x = "True Acceleration", y = "Predicted Acceleration")
+acc
+acc + xlim(c(-10, 10)) + ylim(c(-10,10))
 #acceleration seems squashed a bit, maybe include higher true vals in training set?
 
 
@@ -430,7 +386,7 @@ plot_player_movement_pred(group_id = curr_game_player_play_id,
 
 
 #multiple players on play
-group_id = 1
+group_id = 180
 curr_game_play_id = results_pred %>% 
   group_by(game_play_id) %>%
   filter(cur_group_id() == group_id) %>% 
@@ -509,8 +465,7 @@ results_pred %>%
 #same as above but band-aid fix to negative speeds - 0.729
 
 
-#0.7609 - no log-bias speed correction
-
+#0.741
 
 
 #offense across entire dataset
