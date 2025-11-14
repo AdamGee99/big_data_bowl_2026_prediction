@@ -401,7 +401,7 @@ prop_play_cutoff = 0.4 #this is the cutoff for the amount of play being complete
 #set at 40% play completion right now
 
 data_mod = data_mod %>% 
-  filter((throw == "post" | throw == "pre" & lead(throw) == "post") & prop_play_complete >= 0.4)
+  filter((throw == "post" | throw == "pre" & lead(throw) == "post") | prop_play_complete >= 0.4)
 
 
 #filter out the dir,s,a diffs in training set that are clearly impossible
@@ -419,8 +419,7 @@ data_mod %>% filter(throw == "post") %>% pull(fut_s) %>% quantile(probs = c(0.00
 data_mod %>% filter(throw == "post") %>% pull(fut_a_diff) %>% quantile(probs = c(0.001, 0.01, 0.99, 0.999), na.rm = TRUE)
 
 #filter out the 1% highest and lowest s and a, these are probably weird data/calculation issues
-data_mod = data_mod_train %>% filter(abs(fut_s_diff) <= 1.5,
-                                     abs(fut_a_diff) <= 8)
+#only do this in the training set in cv file
 
 
 

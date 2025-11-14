@@ -21,14 +21,16 @@ library(scattermore)
 source(here("helper.R"))
 
 #import data
-data_mod = read.csv(file = here("data", "data_mod.csv"))
-
+data_mod = read.csv(file = here("data", "data_mod.csv")) %>%
+  mutate(across(where(is.character), as.factor)) #for catboost
 
 #' 80% train, 20% test - by play groups
 set.seed(1999)
-n_plays = data_mod %>% pull(game_play_id) %>% unique() %>% length() #9,109 plays
+n_plays = data_mod %>% pull(game_play_id) %>% unique() %>% length() #14,107 plays
 split = sample(unique(data_mod$game_play_id), size = round(0.8*n_plays))
-data_mod_train = data_mod %>% filter(game_play_id %in% split)
+data_mod_train = data_mod %>% filter(game_play_id %in% split,
+                                     abs(fut_s_diff) <= 1, #filter out the super high or low s or a diffs
+                                     abs(fut_a_diff) <= 6)
 data_mod_test = data_mod %>% filter(!(game_play_id %in% split))
 
 
@@ -72,20 +74,20 @@ cat_test_acc_d = catboost.load_pool(test_d, label = test_d_labels$fut_a_diff)
 
 #fit - optionally set the test set
 dir_cat_o = catboost.train(learn_pool = cat_train_dir_o, test_pool = cat_test_dir_o, params = list(metric_period = 50,
-                                                                                                   iterations = 500,
+                                                                                                   iterations = 1000,
                                                                                                    od_type = "Iter", 
                                                                                                    od_wait = 100)) #num iterations to go past min test error before stop
 dir_cat_d = catboost.train(learn_pool = cat_train_dir_d, test_pool = cat_test_dir_d, params = list(metric_period = 50,
-                                                                                                   iterations = 500,
+                                                                                                   iterations = 1000,
                                                                                                    od_type = "Iter", 
                                                                                                    od_wait = 50))
 
 speed_cat_o = catboost.train(learn_pool = cat_train_speed_o, test_pool = cat_test_speed_o, params = list(metric_period = 50,
-                                                                                                         iterations = 500,
+                                                                                                         iterations = 1000,
                                                                                                          od_type = "Iter", 
                                                                                                          od_wait = 100))
 speed_cat_d = catboost.train(learn_pool = cat_train_speed_d, test_pool = cat_test_speed_d, params = list(metric_period = 50,
-                                                                                                         iterations = 500,
+                                                                                                         iterations = 1000,
                                                                                                          od_type = "Iter", 
                                                                                                          od_wait = 100))
 #calculate residual variance for log-bias correction
@@ -95,11 +97,11 @@ speed_cat_d = catboost.train(learn_pool = cat_train_speed_d, test_pool = cat_tes
 
 
 acc_cat_o = catboost.train(learn_pool = cat_train_acc_o, test_pool = cat_test_acc_o, params = list(metric_period = 50,
-                                                                                                   iterations = 500,
+                                                                                                   iterations = 1000,
                                                                                                    od_type = "Iter", 
                                                                                                    od_wait = 100))
 acc_cat_d = catboost.train(learn_pool = cat_train_acc_d, test_pool = cat_test_acc_d, params = list(metric_period = 50,
-                                                                                                   iterations = 500,
+                                                                                                   iterations = 1000,
                                                                                                    od_type = "Iter", 
                                                                                                    od_wait = 100))
 
@@ -113,9 +115,8 @@ catboost.get_feature_importance(acc_cat_d)
 
 
 #' experiment with:
-#'  1. fit model with automatic test set evaluation thing
-#'  2. shrink model
-#'  3. drop unused features
+#'  1. shrinking model
+#'  2. drop unused features
 #'  
 #'  see if any of these improve performance
 
@@ -133,8 +134,6 @@ data_mod_test_pred = data_mod_test %>%
 #above should be CV
 #then predict on entire data set
 
-
-
 #do this in parallel
 library(foreach)
 library(doFuture)
@@ -143,13 +142,13 @@ handlers(global = TRUE)
 handlers("progress")
 
 registerDoFuture()
-plan(multisession, workers = 10)
+plan(multisession, workers = 14)
 
 #these are what we should parallelize over 
-game_play_ids = data_mod_test_pred$game_play_id %>% unique()
+game_play_ids = data_mod_test_pred$game_play_id %>% unique() %>% sort()
 
 #for testing
-game_play_ids = game_play_ids[1:10]
+#game_play_ids = game_play_ids[1:100]
 
 #this is my predict() function
 
@@ -166,7 +165,7 @@ start = Sys.time()
 with_progress({
   p = progressor(steps = length(game_play_ids)) #progress
   
-  results = foreach(group_id = game_play_ids, .combine = rbind, .packages = c("tidyverse", "doParallel", "catboost")) %do% {
+  results = foreach(group_id = game_play_ids, .combine = rbind, .packages = c("tidyverse", "doParallel", "catboost")) %dopar% {
     p(sprintf("Iteration %d", group_id)) #progress 
     
     #single player on single play
@@ -222,11 +221,6 @@ with_progress({
           change_in_kinematics() %>%
           derived_features() %>%
           filter(frame_id == frame) #filter for only current frame
-        
-        
-        ######### THERES NO DIR COLUMN HERE !!!!
-        
-        
       }
       
       #predict next x,y
@@ -256,8 +250,6 @@ with_progress({
                  pred_a = est_acc + ifelse(player_side == "Offense", 
                                            catboost.predict(acc_cat_o, cat_pred_df), 
                                            catboost.predict(acc_cat_d, cat_pred_df)))
-          #mutate(pred_s = ifelse(pred_s < 0, 0, pred_s)) #speed cannot be 0
-        #this seems like a band aid fix - how to model speed as strictly positive? model on log scale then back-transform?
         
         #same colnames as previous iteration
         if(curr_frame_player$throw != "pre") {curr_frame_all_players = curr_frame_all_players %>% select(all_of(colnames(result)))} 
@@ -268,18 +260,11 @@ with_progress({
       ### return result ###
       result = curr_frame_all_players
       result
-      
-      #print(colnames(result))
-      #if(frame %in% c(26,27)) {print(colnames(result))}
     }
   }
 })
 end = Sys.time()
 end - start
-#results
-
-# I think this for loop is now memory intensive, rather than CPU intensive
-# - if we can somehow make it less memory intesive that should speed this up
 
 
 ### experiment with this - figure out the best method - compare rmse at the end
@@ -296,8 +281,6 @@ end - start
 #' but how computationally feasible is this
 #' 
 #' 
-
-
 
 
 
@@ -368,7 +351,7 @@ acc + xlim(c(-10, 10)) + ylim(c(-10,10))
 
 
 #pred dir, s, a vs true dir, s, a
-group_id = 1
+group_id = 421
 dir_s_a_eval(group_id)
 
 #single player movement
@@ -386,7 +369,7 @@ plot_player_movement_pred(group_id = curr_game_player_play_id,
 
 
 #multiple players on play
-group_id = 180
+group_id = 145
 curr_game_play_id = results_pred %>% 
   group_by(game_play_id) %>%
   filter(cur_group_id() == group_id) %>% 
@@ -465,7 +448,7 @@ results_pred %>%
 #same as above but band-aid fix to negative speeds - 0.729
 
 
-#0.741
+#0.711
 
 
 #offense across entire dataset
