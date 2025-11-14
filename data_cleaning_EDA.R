@@ -424,7 +424,7 @@ data_mod %>% filter(throw == "post") %>% pull(fut_a_diff) %>% quantile(probs = c
 
 
 #save
-write.csv(data_mod, file = here("data", "data_mod.csv"), row.names = FALSE)
+#write.csv(data_mod, file = here("data", "data_mod.csv"), row.names = FALSE)
 
 
 
