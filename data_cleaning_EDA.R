@@ -194,10 +194,9 @@ train = train %>% filter(!(game_play_id %in% 812))
 #'  -distance to nearest out of bounds point
 #'  -direction to nearest out of bounds point
 #'  
+#'  -dir_diff/dist to nearest teammate
+#'  -dir_diff/dist to nearest opponent
 #'  
-#'   (doing most of these means we need to use the players not in players_to_predict to derive)
-#'  -direction to nearest offensive player
-#'  -distance to nearest offensive player
 #'  
 #'  TO DO:
 #'  -speed of nearest offensive player
@@ -213,7 +212,7 @@ train = train %>% filter(!(game_play_id %in% 812))
 #'                               player just needs to be in this radius to catch, not exactly on the ball land x,y point
 #'                               
 #'  -avg_dir_offense - the average direction the offense is headed (maybe only take average of people close to ball_land?)
-#'  -avg_speed_offense- same as above but speed
+#'  -speed_of_offense- same as above but speed
 #'  
 #'  
 #'  -Voronoi features - this captures the space which players are controlling in the field 
@@ -396,8 +395,9 @@ data_mod = train %>%
             player_birth_date, num_frames_output, num_frames)) %>%
   mutate(across(where(is.character), as.factor)) %>%
   mutate(est_speed = ifelse(est_speed == 0, 0.01, est_speed)) %>% #0.01 is the min recorded/estimated speed
+  group_by(game_player_play_id) %>%
   mutate(fut_s = lead(est_speed)) %>%
-  filter(!is.na(fut_dir_diff) & !is.na(fut_s_diff) & !is.na(fut_a_diff)) #remove NA responses
+  ungroup()
 
 #what proportion of play being complete is ball thrown
 data_mod %>% filter(throw == "post" & lag(throw) == "pre") %>% pull(prop_play_complete) %>% hist()
@@ -410,7 +410,7 @@ data_mod = data_mod %>%
 
 
 #filter out the dir,s,a diffs in training set that are clearly impossible
-data_mod %>% filter(throw == "post") %>% select(fut_dir_diff, fut_s_diff, fut_a_diff) %>% summary()
+data_mod %>% filter(throw == "post") %>% select(fut_dir_diff, fut_s_diff, fut_s, fut_a_diff) %>% summary()
 
 #histograms of response
 data_mod %>% filter(throw == "post") %>% pull(fut_dir_diff) %>% hist(breaks = 300, xlim = c(-30, 30))

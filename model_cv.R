@@ -45,7 +45,7 @@ cv_train_models = function(df, cv_split) {
   
   #might as well do it in parallel
   registerDoFuture()
-  plan(multisession, workers = num_folds) #out of 20 cores
+  plan(multisession, workers = min(c(num_folds, 10))) #out of 20 cores
   
   #loop through folds
   foreach(fold = 1:num_folds, .packages = c("tidyverse", "doParallel", "catboost")) %dopar% {
@@ -56,9 +56,11 @@ cv_train_models = function(df, cv_split) {
     data_mod_train = df %>% 
       filter(game_play_id %in% train_plays,
              abs(fut_s_diff) <= 1, #filter out the crazy speeds/accs for training
-             abs(fut_a_diff) <= 6)
+             abs(fut_a_diff) <= 6) %>%
+      filter(!is.na(fut_dir_diff) & !is.na(fut_s) & !is.na(fut_a_diff)) #remove NA responses
     data_mod_test = df %>% 
-      filter(game_play_id %in% test_plays)
+      filter(game_play_id %in% test_plays) %>%
+      filter(!is.na(fut_dir_diff) & !is.na(fut_s) & !is.na(fut_a_diff)) #remove NA responses
     
     
     #fit models on training fold
@@ -152,7 +154,7 @@ cv_train_models(data_mod, split)
 end = Sys.time()
 end-start
 
-#takes __ min for 1000 iterations each model
+#takes 15 min for 1000 iterations each model
 
 plan(sequential) #quit parallel workers
 
@@ -320,14 +322,14 @@ cv_predict = function(df, pred_subset = FALSE) {
 
 #run CV
 start = Sys.time()
-results = cv_predict(data_mod) 
+results = cv_predict(data_mod, pred_subset = 100) 
 end = Sys.time()
 end - start
 
 #quit parallel workers
 plan(sequential)
 
-#1000 iterations training, entire dataset takes 30 min
+#entire dataset takes 48 min
 
 
 ### experiment with this - figure out the best method - compare rmse at the end
@@ -365,7 +367,7 @@ true_vals = data_mod %>%
 
 #bind results into df
 results = results %>%
-  left_join(true_vals, by = c("game_player_play_id", "frame_id")) %>% #join true x,y values
+  full_join(true_vals, by = c("game_player_play_id", "frame_id")) %>% #join true x,y values
   arrange(game_play_id, game_player_play_id, frame_id)
 
 
@@ -405,8 +407,8 @@ results %>%
   filter(throw == "post") %>%
   summarise(rmse = get_rmse(true_x = true_x, true_y = true_y,
                             pred_x = x, pred_y = y))
-#remember this is only 20% of the dataset
 
+#0.738 best
 
 #fit on all -                     - 1.111
 
@@ -419,17 +421,8 @@ results %>%
 
 #fit on throw == "post"           - 1.154
 
-
-#cat boost off/def models and 0.4 prop_play  - 0.951
-
-#Fixed acceleration!
-#catboost off/def models, 0.4 prop_play -  0.834
-#above but added closest player features - 0.821
-
 #same as above but filtering out weird data - 0.730
 #same as above but band-aid fix to negative speeds - 0.729
-
-#0.711
 
 
 #offense across entire dataset
@@ -443,8 +436,12 @@ results %>%
   summarise(rmse = get_rmse(true_x = true_x, true_y = true_y,
                             pred_x = x, pred_y = y))
 #defense is much harder to predict 
-#' Off - 0.537
-#' Def - 0.929
+
+
+
+
+### RMSE of dir, s, a
+dir_rmse = results$pred_dir
 
 
 
@@ -459,12 +456,12 @@ results %>% select(pred_a, true_a) %>% summary()
 
 
 #true vs predicted dir
-ggplot(data = results, mapping = aes(x = true_dir, y = min_pos_neg_dir(pred_dir - true_dir))) +
+ggplot(data = results, mapping = aes(x = true_dir, y = pred_dir)) +
   geom_scattermore(alpha = 0.2) +
   xlim(c(0, 360)) + 
   #ylim(c(-20,20)) +
   theme_bw() +
-  labs(x = "True Direction", y = "Predicted Direction Minus True Direction")
+  labs(x = "True Direction", y = "Predicted Direction")
 
 #true vs predicted speed
 ggplot(data = results, mapping = aes(x = true_s, y = pred_s)) +
@@ -492,7 +489,7 @@ acc + xlim(c(-10, 10)) + ylim(c(-10,10))
 
 
 #pred dir, s, a vs true dir, s, a
-group_id = 1
+group_id = 4
 dir_s_a_eval(group_id)
 
 #single player movement
@@ -519,4 +516,8 @@ multi_player_movement_pred(group_id = curr_game_play_id,
                              filter(game_play_id == curr_game_play_id) %>%
                              select(game_player_play_id, frame_id, x, y) %>%
                              rename(pred_x = x, pred_y = y))
+
+
+
+
 
