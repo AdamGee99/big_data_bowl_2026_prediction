@@ -543,12 +543,12 @@ plot_ball_land_dir_diff = function(group_id) {
 
 #' function that compares prediced vs true dir, s, a for a single player on a play
 dir_s_a_eval = function(group_id) {
-  curr_game_player_play_id = results_pred %>% 
+  curr_game_player_play_id = results %>% 
     group_by(game_player_play_id) %>%
     filter(cur_group_id() == group_id) %>% 
     pull(game_player_play_id) %>% unique()
   
-  dir_s_a_eval_df = results_pred %>%
+  dir_s_a_eval_df = results %>%
     filter(game_player_play_id == curr_game_player_play_id) %>%
     select(frame_id, est_dir, est_speed, est_acc, true_dir, true_s, true_a)
   

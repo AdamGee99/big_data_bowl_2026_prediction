@@ -204,6 +204,9 @@ train = train %>% filter(!(game_play_id %in% 812))
 #'  -direction of nearest offensive player (the defense is trying to copy/predict this)
 #'  -direction to quarterback
 #'  
+#'  -whether ball_land_xy is close to boundary or not
+#'    -sometimes ball_land_xy is out of bounds and players give up trying to catch it
+#'  
 #'  -include acceleration vector and acceleration scalar (the scalar we can use recorded values)
 #'  
 #'  -update ball_land_dir_diff - update to be the nearest direction to a circle around ball land x,y 
@@ -214,6 +217,8 @@ train = train %>% filter(!(game_play_id %in% 812))
 #'  
 #'  
 #'  -Voronoi features - this captures the space which players are controlling in the field 
+#'  
+#'  -second derivative of the player's curve over the past 5 frames for eg, the sharper the curve, the slower the speed/acc...
 #'  
 
 
