@@ -154,19 +154,19 @@ start = Sys.time()
 cv_train_models(data_mod, split)
 end = Sys.time()
 end-start
-
-#takes 15 min for 1000 iterations each model
-
 plan(sequential) #quit parallel workers
 
-cat_features = read.csv(file = here("models", "cat_features.csv")) %>% pull(x)
+#takes 15 min for 1000 iterations each model
 
 
 ############################################### CV Predict ###############################################
 
 
+#features for catboost
+catboost_features = read.csv(file = here("models", "cat_features.csv")) %>% pull(x)
+
 #function that takes previous models and predicts on each test fold
-#df is data_train_mod - the cleaned dataset to fit models on
+#df is data_mod
 #pred_subset is the number of rows to predict on in the test folds - make this small to run quicker
 cv_predict = function(df, pred_subset = FALSE) {
   
@@ -184,18 +184,9 @@ cv_predict = function(df, pred_subset = FALSE) {
 
     #plays we need to predict on
     test_plays = game_play_ids[split == fold]
-    
     data_mod_test = df %>% 
-      filter(game_play_id %in% test_plays)
-    
-    #df to generate predictions on
-    data_mod_test_pred = data_mod_test %>% 
-      filter(throw == "post" | (throw == "pre" & lead(throw) == "post")) %>% #filter for post throw only
-      #mutate the unknowns to be NA to ensure the model isn't using any future known data
-      mutate(across(-c(game_player_play_id, game_play_id, throw, frame_id, play_direction, 
-                       absolute_yardline_number, player_name, player_height, player_weight, player_position,
-                       player_side, player_role, ball_land_x, ball_land_y, prop_play_complete), 
-                    ~ ifelse(throw == "pre", .x, NA))) 
+      filter(game_play_id %in% test_plays,
+             throw == "pre" & lead(throw) == "post") #select the final frame before throw
     
     #predict on subset of test folds
     if(is.numeric(pred_subset)) {
@@ -212,7 +203,7 @@ cv_predict = function(df, pred_subset = FALSE) {
     
     #' flow of this:
     #'  -loop through all the plays
-    #'    -loop through all the frames in a play
+    #'    -loop through all the frames in a num_frames_output
     #'    -for each player: predict next x,y and derive new features
     #'      -loop through the players in the play post throw
     #'      -predict next dir, s, a
@@ -221,21 +212,27 @@ cv_predict = function(df, pred_subset = FALSE) {
     with_progress({
       p = progressor(steps = length(test_plays)) #progress
       
-      results = foreach(group_id = test_plays, .combine = rbind, .packages = c("tidyverse", "doParallel", "catboost")) %dopar% {
-        p(sprintf("Iteration %d", group_id)) #progress 
+      results = foreach(play = test_plays, .combine = rbind, .packages = c("tidyverse", "doParallel", "catboost")) %dopar% {
+        p(sprintf("Iteration %d", play)) #progress 
         
-        #single play
-        curr_game_play_group = data_mod_test_pred %>% filter(game_play_id == group_id)
-        #the frames in the play
-        frames = curr_game_play_group$frame_id %>% unique()
-        #player ids in the play we need to predict
-        player_ids = curr_game_play_group$game_player_play_id %>% unique()
+        #current play info - includes all players to predict on this play
+        curr_play_info = data_mod_test %>% filter(game_play_id == play)
+        last_frame_id = curr_play_info$frame_id %>% unique() #last frame id before throw
+        num_frames_output = curr_play_info$num_frames_output %>% unique() #number of frames to predict
+        player_ids = curr_play_info$game_player_play_id %>% unique() #player ids in the play we need to predict
         
         #loop through frames in play (not in parallel)
-        foreach(frame = frames, .combine = rbind) %do% {
+        foreach(output_frame_id = 1:(num_frames_output), .combine = rbind) %do% {
           
-          #info for all players in current frame
-          curr_frame_all_players = data_mod_test_pred %>% filter(game_play_id == group_id, frame_id == frame)
+          frame = last_frame_id + output_frame_id #current frame
+          
+          #df to store all results
+          curr_frame_all_players = curr_play_info %>%
+            #update frame stuff
+            mutate(frame_id = frame,
+                   prop_play_complete = frame/(last_frame_id + num_frames_output),
+                   throw = as.factor(ifelse(output_frame_id > 1, "post", "pre")))
+          
           #if frame is pre throw we already know the features and everything to predict x,y,dir,s,a
           
           #if frame is post throw then we need to update position and dir, s, a based on previous iterations predictions
@@ -261,7 +258,7 @@ cv_predict = function(df, pred_subset = FALSE) {
             closest_player_features = get_closest_player_min_dist_dir(curr_frame_all_players) 
             curr_frame_all_players = curr_frame_all_players %>% 
               select(-starts_with("closest_")) %>% #deselect the NA closest player columns so we can merge the right ones
-              full_join(closest_player_features, by = c("game_player_play_id")) #%>% #join the min dist/dir
+              full_join(closest_player_features, by = c("game_player_play_id"))
             
             #all other features
             #need previous frame to compute lag stuff
@@ -288,7 +285,7 @@ cv_predict = function(df, pred_subset = FALSE) {
           curr_frame_all_players = foreach(player = player_ids, .combine = rbind) %do% { #need to do this in a loop since catboost load pool thing
             cat_pred_df = curr_frame_all_players %>%
               filter(game_player_play_id == player) %>%
-              select(all_of(cat_features)) %>% #pred df for catboost
+              select(all_of(catboost_features)) %>% #pred df for catboost
               catboost.load_pool()
             
             #return row with predicted dir, s, a
@@ -329,12 +326,13 @@ cv_predict = function(df, pred_subset = FALSE) {
 
 #run CV
 start = Sys.time()
-results = cv_predict(data_mod, pred_subset = 10) 
+results = cv_predict(data_mod) 
 end = Sys.time()
 end - start
+plan(sequential) #quit parallel workers
 
-#quit parallel workers
-plan(sequential)
+
+#results %>% arrange(game_play_id, game_player_play_id, frame_id) %>% View()
 
 #entire dataset takes 48 min
 
@@ -359,7 +357,6 @@ plan(sequential)
 #' 
 #' python def has a library that can call R code so that's how the API will handle it
 #' can save catboost models as a .parquet file so python can run it quickly
-
 
 
 
@@ -503,7 +500,7 @@ acc + xlim(c(-10, 10)) + ylim(c(-10,10))
 
 
 #pred dir, s, a vs true dir, s, a
-group_id = 4
+group_id = 1
 dir_s_a_eval(group_id)
 
 #single player movement
@@ -524,7 +521,7 @@ curr_game_play_id = results_comp %>%
   group_by(game_play_id) %>%
   filter(cur_group_id() == group_id) %>% 
   pull(game_play_id) %>% unique()
-curr_game_play_id = 4331
+#curr_game_play_id = 4331
 multi_player_movement_pred(group_id = curr_game_play_id,
                            group_id_preds = results_comp %>%
                              filter(game_play_id == curr_game_play_id) %>%

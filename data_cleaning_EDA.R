@@ -404,8 +404,7 @@ data_mod = train %>%
   #order the columns
   select(fut_dir_diff, fut_s_diff, fut_a_diff, game_player_play_id, game_play_id, everything()) %>%
   #de-select unnecessary feature columns - things that can't be calculated post throw
-  select(-c(game_id, nfl_id, play_id, o, player_to_predict, s, a, dir,
-            player_birth_date, num_frames_output, num_frames)) %>%
+  select(-c(game_id, nfl_id, play_id, player_to_predict, o, s, a, dir, num_frames)) %>%
   mutate(across(where(is.character), as.factor)) %>%
   mutate(est_speed = ifelse(est_speed == 0, 0.01, est_speed)) %>% #0.01 is the min recorded/estimated speed
   group_by(game_player_play_id) %>%
@@ -435,11 +434,6 @@ data_mod %>% filter(throw == "post") %>% pull(fut_dir_diff) %>% quantile(probs =
 data_mod %>% filter(throw == "post") %>% pull(fut_s_diff) %>% quantile(probs = c(0.001, 0.01, 0.99, 0.999), na.rm = TRUE)
 data_mod %>% filter(throw == "post") %>% pull(fut_s) %>% quantile(probs = c(0.001, 0.01, 0.99, 0.999), na.rm = TRUE)
 data_mod %>% filter(throw == "post") %>% pull(fut_a_diff) %>% quantile(probs = c(0.001, 0.01, 0.99, 0.999), na.rm = TRUE)
-
-#filter out the 1% highest and lowest s and a, these are probably weird data/calculation issues
-#only do this in the training set in cv file
-
-
 
 #save
 #write.csv(data_mod, file = here("data", "data_mod.csv"), row.names = FALSE)
