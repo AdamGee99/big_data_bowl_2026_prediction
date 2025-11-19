@@ -203,6 +203,19 @@ train = train %>% filter(!(game_play_id %in% 812))
 #'  -direction of nearest offensive player (the defense is trying to copy/predict this)
 #'  -direction to quarterback
 #'  
+#'  -time complete in play (num_frames post throw/10)
+#'  -time until play complete ((max frame - current frame)/10)
+#'  
+#'  
+#'  -makes me think, can we use predicted position as feature to predict future dir, s, a?
+#'  -we can predict next position before predicting future dir, s, a
+#'  -ie, use est_fut_dist_diff, est_fut_dir_diff
+#'      -problem here is that the predicted position is just a straight line away in constant speed/acc so nothing is really changing, not usefeul
+#'      
+#'  -what if we somehow used the predicted position using the updated dir, s, a
+#'  -like we use the predictions as a feature? - might be weird, might cause overfitting
+#'  
+#'  
 #'  -whether ball_land_xy is close to boundary or not
 #'    -sometimes ball_land_xy is out of bounds and players give up trying to catch it
 #'  
@@ -274,7 +287,7 @@ dim(train_derived)
 #train = read.csv(file = here("data", "train_clean.csv"), row.names = FALSE)
 
 #ball_land_dir_diff vs fut_dir_diff
-ball_land_dir_diff_v_fut_dir_diff = ggplot(data = train %>% filter(prop_play_complete >= 0.4), mapping = aes(x = ball_land_dir_diff, y = fut_dir_diff)) + 
+ball_land_dir_diff_v_fut_dir_diff = ggplot(data = train %>% filter(throw == "post"), mapping = aes(x = ball_land_dir_diff, y = fut_dir_diff)) + 
   geom_scattermore(alpha = 0.01) + ylim(c(-30,30))
 ball_land_dir_diff_v_fut_dir_diff
 #' negative relationship here makes sense
@@ -283,18 +296,18 @@ ball_land_dir_diff_v_fut_dir_diff
 #' relationship gets even stronger if you filter out first bit of play - prop_play_complete >= 0.4
 
 #out_bounds_dir_diff vs fut_dir_diff
-ggplot(data = train_derived, mapping = aes(x = out_bounds_dir_diff, y = fut_dir_diff)) +
+ggplot(data = train, mapping = aes(x = out_bounds_dir_diff, y = fut_dir_diff)) +
   geom_scattermore(alpha = 0.01) + ylim(c(-30, 30))
 
 #closest_player_dir_diff vs fut_dir_diff
-train_derived %>% filter(player_side == "Offense") %>% ggplot(mapping = aes(x = closest_opponent_dir_diff, y = fut_dir_diff)) +
+train %>% filter(player_side == "Offense") %>% ggplot(mapping = aes(x = closest_opponent_dir_diff, y = fut_dir_diff)) +
   geom_scattermore(alpha = 0.05) + ylim(c(-30, 30))
 
 #closest_player_dir_diff vs fut_dir_diff
-train_derived %>% filter(player_side == "Defense") %>% ggplot(mapping = aes(x = closest_teammate_dir_diff, y = fut_dir_diff)) +
+train %>% filter(player_side == "Defense") %>% ggplot(mapping = aes(x = closest_teammate_dir_diff, y = fut_dir_diff)) +
   geom_scattermore(alpha = 0.05) + ylim(c(-30, 30))
 
-train_derived %>% filter(player_side == "Defense") %>% ggplot(mapping = aes(x = closest_opponent_dir_diff, y = fut_dir_diff)) +
+train %>% filter(player_side == "Defense") %>% ggplot(mapping = aes(x = closest_opponent_dir_diff, y = fut_dir_diff)) +
   geom_scattermore(alpha = 0.05) + ylim(c(-30, 30))
 
 #' speed throughout play

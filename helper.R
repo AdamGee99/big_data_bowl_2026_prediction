@@ -53,7 +53,7 @@ min_pos_neg_dir = function(dir_diff) {
 
 #' takes in a dataframe for all players in the same frame
 #' outputs the min distance and direction to the closest other player
-#' input df must have: game_player_play_id, x, y for each player in the frame
+#' input df must have: game_player_play_id, player_side, est_dir, x, y for each player in the frame
 get_closest_player_min_dist_dir = function(df) {
   if(nrow(df) == 1) { #if only one player to predict post throw - NA closest player features
     data.frame(game_player_play_id = df$game_player_play_id,
@@ -110,6 +110,12 @@ get_closest_player_min_dist_dir = function(df) {
 }
 
 
+### SOMETHING IS WRONG HERE - ITS NOT CALCULATING CLOSEST_OPP_DIR_DIFF PROPERLY
+all_player_curr_frame = train %>% 
+  filter(game_play_id == 6, frame_id == 24) %>%
+  select(game_player_play_id, game_play_id, frame_id, x, y, est_dir, player_side)
+
+
 
 ############################################### Feature Derivation Functions ############################################### 
 
@@ -132,7 +138,7 @@ est_kinematics = function(df) {
     mutate(est_speed = ifelse(est_speed == 0 & throw == "post", 0.01, est_speed)) %>% #no 0 speed values post throw
     mutate(est_speed = ifelse(throw == "post", est_speed, s), #use true recorded values pre throw if possible
            est_dir = ifelse(throw == "post", est_dir, dir)) %>%
-    ungroup()
+    ungroup() 
   
   kin_df
 }
@@ -150,7 +156,7 @@ change_in_kinematics = function(df) {
            fut_dir_diff = min_pos_neg_dir(lead(est_dir) - est_dir), #diff in dir from current -> next frame
            fut_s_diff = lead(est_speed) - est_speed, #diff in speed from current -> next frame
            fut_a_diff = lead(est_acc) - est_acc #diff in acc from current -> next frame
-    ) %>%
+           ) %>%
     ungroup()
   
   change_kin_df
