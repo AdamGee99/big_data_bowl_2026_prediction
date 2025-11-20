@@ -18,10 +18,13 @@ library(progressr)
 
 ############################################### Import data ###############################################
 
-train = read.csv(file = here("data", "train_clean.csv"))
-data_mod = read.csv(file = here("data", "data_mod.csv")) %>%
+train = read.csv(file = here("data", "train_clean_no_close_player.csv"))
+data_mod = read.csv(file = here("data", "data_mod_no_close_player.csv")) %>%
   mutate(across(where(is.character), as.factor)) #for catboost
 
+#join closest player features
+close_features = read.csv(here("data", "closest_dir_dist_features.csv"))
+data_mod = data_mod %>% left_join(close_features, by = c("game_player_play_id", "frame_id"))
 
 ############################################### Start CV ###############################################
 
@@ -34,6 +37,7 @@ num_plays = length(game_play_ids) #14,107 plays
 
 #the cv splits
 split = (sample(game_play_ids) %% num_folds) + 1
+
 
 
 ############################################### Train Models ###############################################
@@ -58,6 +62,7 @@ cv_train_models = function(df, cv_split) {
       filter(game_play_id %in% train_plays,
              abs(fut_s_diff) <= 1, #filter out the crazy speeds/accs for training
              abs(fut_a_diff) <= 6) %>%
+      filter((throw == "post" | throw == "pre" & lead(throw) == "post") | prop_play_complete >= 0.4) %>% #filter prop_play_complete >0.4
       filter(!is.na(fut_dir_diff) & !is.na(fut_s) & !is.na(fut_a_diff)) #remove NA responses
     data_mod_test = df %>% 
       filter(game_play_id %in% test_plays) %>%
@@ -117,28 +122,11 @@ cv_train_models = function(df, cv_split) {
                                                                                                              od_type = "Iter", od_wait = 100))
     speed_cat_d = catboost.train(learn_pool = cat_train_speed_d, test_pool = cat_test_speed_d, params = list(iterations = 1000, logging_level = "Silent",
                                                                                                              od_type = "Iter", od_wait = 100))
-    #calculate residual variance for log-bias correction
-    # o_speed_correction = var(log(test_o_labels$fut_s) - catboost.predict(model = speed_cat_o, pool = cat_test_speed_o))
-    # d_speed_correction = var(log(test_d_labels$fut_s) - catboost.predict(model = speed_cat_d, pool = cat_test_speed_d))
-    #seems to make predictions worse
     
     acc_cat_o = catboost.train(learn_pool = cat_train_acc_o, test_pool = cat_test_acc_o, params = list(iterations = 1000, logging_level = "Silent",
                                                                                                        od_type = "Iter", od_wait = 100))
     acc_cat_d = catboost.train(learn_pool = cat_train_acc_d, test_pool = cat_test_acc_d, params = list(iterations = 1000, logging_level = "Silent",
                                                                                                        od_type = "Iter", od_wait = 100))
-    # #feature importance
-    # catboost.get_feature_importance(dir_cat_o)
-    # catboost.get_feature_importance(dir_cat_d)
-    # catboost.get_feature_importance(speed_cat_o)
-    # catboost.get_feature_importance(speed_cat_d)
-    # catboost.get_feature_importance(acc_cat_o)
-    # catboost.get_feature_importance(acc_cat_d)
-    #' experiment with:
-    #'  1. shrinking model
-    #'  2. drop unused features
-    #'  
-    #'  see if any of these improve performance
-    
     #save models
     catboost.save_model(dir_cat_o, model_path = here("models", paste0("fold_", fold), "offense", "dir.cbm"))
     catboost.save_model(dir_cat_d, model_path = here("models", paste0("fold_", fold), "defense", "dir.cbm"))
@@ -194,12 +182,20 @@ cv_predict = function(df, pred_subset = FALSE) {
     }
     
     #load models for this fold
-    dir_cat_o = catboost.load_model(model_path = here("models", paste0("fold_", fold), "offense", "dir.cbm"))
-    dir_cat_d = catboost.load_model(model_path = here("models", paste0("fold_", fold), "defense", "dir.cbm"))
-    speed_cat_o = catboost.load_model(model_path = here("models", paste0("fold_", fold), "offense", "speed.cbm"))
-    speed_cat_d = catboost.load_model(model_path = here("models", paste0("fold_", fold), "defense", "speed.cbm"))
-    acc_cat_o = catboost.load_model(model_path = here("models", paste0("fold_", fold), "offense", "acc.cbm"))
-    acc_cat_d = catboost.load_model(model_path = here("models", paste0("fold_", fold), "defense", "acc.cbm"))
+    # dir_cat_o = catboost.load_model(model_path = here("models", paste0("fold_", fold), "offense", "dir.cbm"))
+    # dir_cat_d = catboost.load_model(model_path = here("models", paste0("fold_", fold), "defense", "dir.cbm"))
+    # speed_cat_o = catboost.load_model(model_path = here("models", paste0("fold_", fold), "offense", "speed.cbm"))
+    # speed_cat_d = catboost.load_model(model_path = here("models", paste0("fold_", fold), "defense", "speed.cbm"))
+    # acc_cat_o = catboost.load_model(model_path = here("models", paste0("fold_", fold), "offense", "acc.cbm"))
+    # acc_cat_d = catboost.load_model(model_path = here("models", paste0("fold_", fold), "defense", "acc.cbm"))
+    
+    #test using final models - the same oens used for kaggle submission
+    dir_cat_o = catboost.load_model(model_path = here("models", "final_models", "offense", "dir.cbm"))
+    dir_cat_d = catboost.load_model(model_path = here("models", "final_models", "defense", "dir.cbm"))
+    speed_cat_o = catboost.load_model(model_path = here("models", "final_models", "offense", "speed.cbm"))
+    speed_cat_d = catboost.load_model(model_path = here("models", "final_models", "defense", "speed.cbm"))
+    acc_cat_o = catboost.load_model(model_path = here("models", "final_models", "offense", "acc.cbm"))
+    acc_cat_d = catboost.load_model(model_path = here("models", "final_models", "defense", "acc.cbm"))
     
     #' flow of this:
     #'  -loop through all the plays
@@ -326,7 +322,7 @@ cv_predict = function(df, pred_subset = FALSE) {
 
 #run CV
 start = Sys.time()
-results = cv_predict(data_mod) 
+results = cv_predict(data_mod, pred_subset = 50) 
 end = Sys.time()
 end - start
 plan(sequential) #quit parallel workers
@@ -334,7 +330,7 @@ plan(sequential) #quit parallel workers
 
 #results %>% arrange(game_play_id, game_player_play_id, frame_id) %>% View()
 
-#entire dataset takes 48 min
+#entire dataset takes 29 min
 
 
 ### experiment with this - figure out the best method - compare rmse at the end
@@ -476,7 +472,7 @@ ggplot(data = results_comp, mapping = aes(x = true_dir, y = pred_dir)) +
 
 #true vs predicted speed
 ggplot(data = results_comp, mapping = aes(x = true_s, y = pred_s)) +
-  geom_scattermore() +
+  geom_scattermore(alpha = 0.1) +
   xlim(c(min(c(results_comp$pred_s, results_comp$true_s))), 
        max(c(results_comp$pred_s, results_comp$true_s))) + 
   ylim(c(min(c(results_comp$pred_s, results_comp$true_s))), 
@@ -521,7 +517,7 @@ curr_game_play_id = results_comp %>%
   group_by(game_play_id) %>%
   filter(cur_group_id() == group_id) %>% 
   pull(game_play_id) %>% unique()
-#curr_game_play_id = 4331
+#curr_game_play_id = 812
 multi_player_movement_pred(group_id = curr_game_play_id,
                            group_id_preds = results_comp %>%
                              filter(game_play_id == curr_game_play_id) %>%
@@ -590,6 +586,8 @@ catboost.save_model(speed_cat_o, model_path = here("models", "final_models", "of
 catboost.save_model(speed_cat_d, model_path = here("models", "final_models", "defense", "speed.cbm"))
 catboost.save_model(acc_cat_o, model_path = here("models", "final_models", "offense", "acc.cbm"))
 catboost.save_model(acc_cat_d, model_path = here("models", "final_models", "defense", "acc.cbm"))
+
+
 
 
 

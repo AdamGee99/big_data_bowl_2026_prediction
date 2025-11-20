@@ -7,6 +7,7 @@ library(gridExtra)
 library(patchwork)
 library(scales)
 library(scattermore)
+source(here("helper.R"))
 
 
 ############################################### Import Data ############################################### 
@@ -22,9 +23,6 @@ head(train_X)
 
 #these are the post-throw player positions
 head(train_Y)
-
-#source helper functions
-source(here("helper.R"))
 
 
 ############################################### Cleaning ############################################### 
@@ -197,15 +195,14 @@ train = train %>% filter(!(game_play_id %in% 812))
 #'  -dir_diff/dist to nearest teammate
 #'  -dir_diff/dist to nearest opponent
 #'  
+#'  -time complete in play (num_frames post throw/10)
+#'  -time until play complete ((max frame - current frame)/10)
+#'  
 #'  
 #'  TO DO:
 #'  -speed of nearest offensive player
 #'  -direction of nearest offensive player (the defense is trying to copy/predict this)
 #'  -direction to quarterback
-#'  
-#'  -time complete in play (num_frames post throw/10)
-#'  -time until play complete ((max frame - current frame)/10)
-#'  
 #'  
 #'  -makes me think, can we use predicted position as feature to predict future dir, s, a?
 #'  -we can predict next position before predicting future dir, s, a
@@ -231,7 +228,6 @@ train = train %>% filter(!(game_play_id %in% 812))
 #'  -Voronoi features - this captures the space which players are controlling in the field 
 #'  
 #'  -second derivative of the player's curve over the past 5 frames for eg, the sharper the curve, the slower the speed/acc...
-#'  
 
 
 #derive most features here
@@ -414,11 +410,11 @@ data_mod = train %>%
 #what proportion of play being complete is ball thrown
 data_mod %>% filter(throw == "post" & lag(throw) == "pre") %>% pull(prop_play_complete) %>% hist()
 #min is 0.225 - fit models mostly on post-throw
-prop_play_cutoff = 0.4 #this is the cutoff for the amount of play being complete we will fit the model on
+#prop_play_cutoff = 0.4 #this is the cutoff for the amount of play being complete we will fit the model on
 #set at 40% play completion right now
 
-data_mod = data_mod %>% 
-  filter((throw == "post" | throw == "pre" & lead(throw) == "post") | prop_play_complete >= 0.4)
+#data_mod = data_mod %>% 
+#  filter((throw == "post" | throw == "pre" & lead(throw) == "post") | prop_play_complete >= 0.4)
 
 
 #filter out the dir,s,a diffs in training set that are clearly impossible
@@ -436,7 +432,7 @@ data_mod %>% filter(throw == "post") %>% pull(fut_s) %>% quantile(probs = c(0.00
 data_mod %>% filter(throw == "post") %>% pull(fut_a_diff) %>% quantile(probs = c(0.001, 0.01, 0.99, 0.999), na.rm = TRUE)
 
 #save
-#write.csv(data_mod, file = here("data", "data_mod.csv"), row.names = FALSE)
+#write.csv(data_mod, file = here("data", "data_mod_no_close_player.csv"), row.names = FALSE)
 
 
 

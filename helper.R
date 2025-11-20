@@ -109,11 +109,11 @@ get_closest_player_min_dist_dir = function(df) {
   }
 }
 
-
-### SOMETHING IS WRONG HERE - ITS NOT CALCULATING CLOSEST_OPP_DIR_DIFF PROPERLY
-all_player_curr_frame = train %>% 
-  filter(game_play_id == 6, frame_id == 24) %>%
-  select(game_player_play_id, game_play_id, frame_id, x, y, est_dir, player_side)
+# 
+# ### SOMETHING IS WRONG HERE - ITS NOT CALCULATING CLOSEST_OPP_DIR_DIFF PROPERLY
+# all_player_curr_frame = train %>% 
+#   filter(game_play_id == 6, frame_id == 24) %>%
+#   select(game_player_play_id, game_play_id, frame_id, x, y, est_dir, player_side)
 
 
 
@@ -135,9 +135,9 @@ est_kinematics = function(df) {
     mutate(est_speed = get_dist(x_diff = x - lag(x), y_diff = y - lag(y))/0.1, #speed over previous -> current frame
            est_acc = (est_speed - lag(est_speed))/0.1, #acc over previous -> current frame (has direction)
            est_dir = get_dir(x_diff = x - lag(x), y_diff = y - lag(y))) %>%
-    mutate(est_speed = ifelse(est_speed == 0 & throw == "post", 0.01, est_speed)) %>% #no 0 speed values post throw
     mutate(est_speed = ifelse(throw == "post", est_speed, s), #use true recorded values pre throw if possible
-           est_dir = ifelse(throw == "post", est_dir, dir)) %>%
+           est_dir = ifelse(throw == "post", est_dir, dir),
+           max_frame_id = max(frame_id)) %>% #the maximum frame id for this player on this play
     ungroup() 
   
   kin_df
@@ -203,6 +203,9 @@ derived_features = function(df) {
     mutate(curr_ball_land_dir = get_dir(x_diff = ball_land_x - x, y_diff = ball_land_y - y), #direction needed from current point to go to the ball landing point
            ball_land_dir_diff = min_pos_neg_dir(est_dir - curr_ball_land_dir), #difference in current direction of player and direction needed to go to to reach ball land (x,y)
            dist_ball_land = get_dist(x_diff = ball_land_x - x, y_diff = ball_land_y - y), #the distance where the player currently is to where the ball will land
+           time_elapsed = frame_id*0.1, #time elapsed in seconds
+           time_until_play_complete = (max_frame_id - frame_id)*0.1, #time until play complete in seconds
+           
            #distance to closest out of bounds point
            out_bounds_dist = case_when( 
              ((x - 0) <= (120 - x)) & ((x - 0) <= (53.3 - y)) & ((x - 0) <= (y - 0)) ~ x - 0,
