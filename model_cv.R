@@ -57,22 +57,22 @@ cv_train_models = function(df, cv_split) {
     train_plays = game_play_ids[split != fold]
     test_plays = game_play_ids[split == fold]
     
-    #split df
-    data_mod_train = df %>% 
-      filter(game_play_id %in% train_plays,
-             abs(fut_s_diff) <= 1, #filter out the crazy speeds/accs for training
+    #data pre processing
+    df = df %>%  
+      filter(abs(fut_s_diff) <= 1, #filter out the crazy speeds/accs for training
              abs(fut_a_diff) <= 6) %>%
       filter((throw == "post" | throw == "pre" & lead(throw) == "post") | prop_play_complete >= 0.4) %>% #filter prop_play_complete >0.4
       filter(!is.na(fut_dir_diff) & !is.na(fut_s) & !is.na(fut_a_diff)) #remove NA responses
-    data_mod_test = df %>% 
-      filter(game_play_id %in% test_plays) %>%
-      filter(!is.na(fut_dir_diff) & !is.na(fut_s) & !is.na(fut_a_diff)) #remove NA responses
+    
+    #split df
+    data_mod_train = df %>% filter(game_play_id %in% train_plays) 
+    data_mod_test = df %>% filter(game_play_id %in% test_plays)
     
     
     #fit models on training fold
     
     #drop unnecessary features
-    unnnecessary_features = c("game_player_play_id", "game_play_id", "player_role",
+    unnnecessary_features = c("game_player_play_id", "game_play_id", "player_role", "throw", "num_frames_output", "play_direction", "player_birth_date", 
                               "frame_id", "x", "y", "ball_land_x", "ball_land_y", "player_name")
     cat_train_df = data_mod_train %>% select(-all_of(unnnecessary_features))
     cat_test_df = data_mod_test %>%select(-all_of(unnnecessary_features))
@@ -90,25 +90,37 @@ cv_train_models = function(df, cv_split) {
     test_o_labels = cat_test_df %>% filter(player_side == "Offense") %>% select(c(starts_with("fut_")))
     test_d_labels = cat_test_df %>% filter(player_side == "Defense") %>% select(c(starts_with("fut_")))
     
-    #df in right type for catboost
-    #train sets
-    cat_train_dir_o = catboost.load_pool(train_o, label = train_o_labels$fut_dir_diff)
-    cat_train_dir_d = catboost.load_pool(train_d, label = train_d_labels$fut_dir_diff)
-    cat_train_speed_o = catboost.load_pool(train_o, label = log(train_o_labels$fut_s)) #try log transform since speed is strictly positive
-    cat_train_speed_d = catboost.load_pool(train_d, label = log(train_d_labels$fut_s)) #try log transform since speed is strictly positive
-    cat_train_acc_o = catboost.load_pool(train_o, label = train_o_labels$fut_a_diff)
+    #exclude certain features for each model
+    dir_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff")
+    dir_d_exclude_features = c("player_position")
+    speed_o_exclude_features = c("player_position", "closest_teammate_dist", "closest_teammate_dir_diff")
+    speed_d_exclude_features = c("player_position")
+    acc_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff")
+    #acc_d_exclude_features = c()  #none for acc_d
+    
+    #pool train sets
+    cat_train_dir_o = catboost.load_pool(train_o %>% select(-any_of(dir_o_exclude_features)), label = train_o_labels$fut_dir_diff)
+    cat_train_dir_d = catboost.load_pool(train_d %>% select(-any_of(dir_d_exclude_features)), label = train_d_labels$fut_dir_diff)
+    cat_train_speed_o = catboost.load_pool(train_o %>% select(-any_of(speed_o_exclude_features)), label = log(train_o_labels$fut_s)) #try log transform since speed is strictly positive
+    cat_train_speed_d = catboost.load_pool(train_d %>% select(-any_of(speed_d_exclude_features)), label = log(train_d_labels$fut_s)) #try log transform since speed is strictly positive
+    cat_train_acc_o = catboost.load_pool(train_o %>% select(-any_of(acc_o_exclude_features)), label = train_o_labels$fut_a_diff)
     cat_train_acc_d = catboost.load_pool(train_d, label = train_d_labels$fut_a_diff)
-    #test sets
-    cat_test_dir_o = catboost.load_pool(test_o, label = test_o_labels$fut_dir_diff)
-    cat_test_dir_d = catboost.load_pool(test_d, label = test_d_labels$fut_dir_diff)
-    cat_test_speed_o = catboost.load_pool(test_o, label = log(test_o_labels$fut_s)) #try log transform since speed is strictly positive
-    cat_test_speed_d = catboost.load_pool(test_d, label = log(test_d_labels$fut_s)) #try log transform since speed is strictly positive
-    cat_test_acc_o = catboost.load_pool(test_o, label = test_o_labels$fut_a_diff)
+    #pool test sets
+    cat_test_dir_o = catboost.load_pool(test_o %>% select(-any_of(dir_o_exclude_features)), label = test_o_labels$fut_dir_diff)
+    cat_test_dir_d = catboost.load_pool(test_d %>% select(-any_of(dir_d_exclude_features)), label = test_d_labels$fut_dir_diff)
+    cat_test_speed_o = catboost.load_pool(test_o %>% select(-any_of(speed_o_exclude_features)), label = log(test_o_labels$fut_s)) #try log transform since speed is strictly positive
+    cat_test_speed_d = catboost.load_pool(test_d %>% select(-any_of(speed_d_exclude_features)), label = log(test_d_labels$fut_s)) #try log transform since speed is strictly positive
+    cat_test_acc_o = catboost.load_pool(test_o %>% select(-any_of(acc_o_exclude_features)), label = test_o_labels$fut_a_diff)
     cat_test_acc_d = catboost.load_pool(test_d, label = test_d_labels$fut_a_diff)
     
-    #save one train set for feature extraction
+    #save features for each model
     if(fold == 1){
-      write.table(colnames(train_o), file  = here("models", "cat_features.csv"), row.names = FALSE)
+      write.table(colnames(train_o %>% select(-any_of(dir_o_exclude_features))), file  = here("models", "cat_features_dir_o.csv"), row.names = FALSE)
+      write.table(colnames(train_o %>% select(-any_of(dir_d_exclude_features))), file  = here("models", "cat_features_dir_d.csv"), row.names = FALSE)
+      write.table(colnames(train_o %>% select(-any_of(speed_o_exclude_features))), file  = here("models", "cat_features_speed_o.csv"), row.names = FALSE)
+      write.table(colnames(train_o %>% select(-any_of(speed_d_exclude_features))), file  = here("models", "cat_features_speed_d.csv"), row.names = FALSE)
+      write.table(colnames(train_o %>% select(-any_of(acc_o_exclude_features))), file  = here("models", "cat_features_acc_o.csv"), row.names = FALSE)
+      write.table(colnames(train_o), file  = here("models", "cat_features_acc_d.csv"), row.names = FALSE)
     }
     
     #fit
@@ -147,11 +159,19 @@ plan(sequential) #quit parallel workers
 #takes 15 min for 1000 iterations each model
 
 
+### what if we filter throw == "post" only for test set...
+
+
 ############################################### CV Predict ###############################################
 
 
 #features for catboost
-catboost_features = read.csv(file = here("models", "cat_features.csv")) %>% pull(x)
+dir_o_features = read.csv(file = here("models", "cat_features_dir_o.csv")) %>% pull(x)
+dir_d_features = read.csv(file = here("models", "cat_features_dir_d.csv")) %>% pull(x)
+speed_o_features = read.csv(file = here("models", "cat_features_speed_o.csv")) %>% pull(x)
+speed_d_features = read.csv(file = here("models", "cat_features_speed_d.csv")) %>% pull(x)
+acc_o_features = read.csv(file = here("models", "cat_features_acc_o.csv")) %>% pull(x)
+acc_d_features = read.csv(file = here("models", "cat_features_acc_d.csv")) %>% pull(x)
 
 #function that takes previous models and predicts on each test fold
 #df is data_mod
@@ -182,20 +202,20 @@ cv_predict = function(df, pred_subset = FALSE) {
     }
     
     #load models for this fold
-    # dir_cat_o = catboost.load_model(model_path = here("models", paste0("fold_", fold), "offense", "dir.cbm"))
-    # dir_cat_d = catboost.load_model(model_path = here("models", paste0("fold_", fold), "defense", "dir.cbm"))
-    # speed_cat_o = catboost.load_model(model_path = here("models", paste0("fold_", fold), "offense", "speed.cbm"))
-    # speed_cat_d = catboost.load_model(model_path = here("models", paste0("fold_", fold), "defense", "speed.cbm"))
-    # acc_cat_o = catboost.load_model(model_path = here("models", paste0("fold_", fold), "offense", "acc.cbm"))
-    # acc_cat_d = catboost.load_model(model_path = here("models", paste0("fold_", fold), "defense", "acc.cbm"))
+    dir_cat_o = catboost.load_model(model_path = here("models", paste0("fold_", fold), "offense", "dir.cbm"))
+    dir_cat_d = catboost.load_model(model_path = here("models", paste0("fold_", fold), "defense", "dir.cbm"))
+    speed_cat_o = catboost.load_model(model_path = here("models", paste0("fold_", fold), "offense", "speed.cbm"))
+    speed_cat_d = catboost.load_model(model_path = here("models", paste0("fold_", fold), "defense", "speed.cbm"))
+    acc_cat_o = catboost.load_model(model_path = here("models", paste0("fold_", fold), "offense", "acc.cbm"))
+    acc_cat_d = catboost.load_model(model_path = here("models", paste0("fold_", fold), "defense", "acc.cbm"))
     
     #test using final models - the same oens used for kaggle submission
-    dir_cat_o = catboost.load_model(model_path = here("models", "final_models", "offense", "dir.cbm"))
-    dir_cat_d = catboost.load_model(model_path = here("models", "final_models", "defense", "dir.cbm"))
-    speed_cat_o = catboost.load_model(model_path = here("models", "final_models", "offense", "speed.cbm"))
-    speed_cat_d = catboost.load_model(model_path = here("models", "final_models", "defense", "speed.cbm"))
-    acc_cat_o = catboost.load_model(model_path = here("models", "final_models", "offense", "acc.cbm"))
-    acc_cat_d = catboost.load_model(model_path = here("models", "final_models", "defense", "acc.cbm"))
+    # dir_cat_o = catboost.load_model(model_path = here("models", "final_models", "offense", "dir.cbm"))
+    # dir_cat_d = catboost.load_model(model_path = here("models", "final_models", "defense", "dir.cbm"))
+    # speed_cat_o = catboost.load_model(model_path = here("models", "final_models", "offense", "speed.cbm"))
+    # speed_cat_d = catboost.load_model(model_path = here("models", "final_models", "defense", "speed.cbm"))
+    # acc_cat_o = catboost.load_model(model_path = here("models", "final_models", "offense", "acc.cbm"))
+    # acc_cat_d = catboost.load_model(model_path = here("models", "final_models", "defense", "acc.cbm"))
     
     #' flow of this:
     #'  -loop through all the plays
@@ -218,7 +238,7 @@ cv_predict = function(df, pred_subset = FALSE) {
         player_ids = curr_play_info$game_player_play_id %>% unique() #player ids in the play we need to predict
         
         #loop through frames in play (not in parallel)
-        foreach(output_frame_id = 1:(num_frames_output), .combine = rbind) %do% {
+        foreach(output_frame_id = 1:num_frames_output, .combine = rbind) %do% {
           
           frame = last_frame_id + output_frame_id #current frame
           
@@ -279,10 +299,6 @@ cv_predict = function(df, pred_subset = FALSE) {
           
           #predict next dir, s, a
           curr_frame_all_players = foreach(player = player_ids, .combine = rbind) %do% { #need to do this in a loop since catboost load pool thing
-            cat_pred_df = curr_frame_all_players %>%
-              filter(game_player_play_id == player) %>%
-              select(all_of(catboost_features)) %>% #pred df for catboost
-              catboost.load_pool()
             
             #return row with predicted dir, s, a
             curr_frame_player = curr_frame_all_players %>% 
@@ -293,17 +309,27 @@ cv_predict = function(df, pred_subset = FALSE) {
               dir_cat = dir_cat_o
               speed_cat = speed_cat_o
               acc_cat = acc_cat_o
+              
+              #catboost pool
+              dir_pool = curr_frame_player %>% select(all_of(dir_o_features)) %>% catboost.load_pool()
+              speed_pool = curr_frame_player %>% select(all_of(speed_o_features)) %>% catboost.load_pool()
+              acc_pool = curr_frame_player %>% select(all_of(acc_o_features)) %>% catboost.load_pool()
             } else {
               dir_cat = dir_cat_d
               speed_cat = speed_cat_d
               acc_cat = acc_cat_d
+              
+              #catboost pool
+              dir_pool = curr_frame_player %>% select(all_of(dir_d_features)) %>% catboost.load_pool()
+              speed_pool = curr_frame_player %>% select(all_of(speed_d_features)) %>% catboost.load_pool()
+              acc_pool = curr_frame_player %>% select(all_of(acc_d_features)) %>% catboost.load_pool()
             }
             #predict
             curr_frame_player = curr_frame_player %>%  
-              mutate(pred_dir = est_dir + catboost.predict(dir_cat, cat_pred_df),
-                     pred_s = catboost.predict(speed_cat, cat_pred_df), 
+              mutate(pred_dir = est_dir + catboost.predict(dir_cat, dir_pool),
+                     pred_s = catboost.predict(speed_cat, speed_pool), 
                      pred_s = exp(pred_s), #exponentiate back to original scale
-                     pred_a = est_acc + catboost.predict(acc_cat, cat_pred_df))
+                     pred_a = est_acc + catboost.predict(acc_cat, acc_pool))
             
             #same colnames as previous iteration
             if(curr_frame_player$throw != "pre") {curr_frame_all_players = curr_frame_all_players %>% select(all_of(colnames(result)))} 
@@ -322,13 +348,10 @@ cv_predict = function(df, pred_subset = FALSE) {
 
 #run CV
 start = Sys.time()
-results = cv_predict(data_mod, pred_subset = 50) 
+results = cv_predict(data_mod) 
 end = Sys.time()
 end - start
 plan(sequential) #quit parallel workers
-
-
-#results %>% arrange(game_play_id, game_player_play_id, frame_id) %>% View()
 
 #entire dataset takes 29 min
 
@@ -368,7 +391,6 @@ true_vals = data_mod %>%
 
 #bind results into df
 results_comp = results %>%
-  filter(throw == "post") %>%
   left_join(true_vals, by = c("game_player_play_id", "frame_id")) %>% #join true x,y values
   arrange(game_play_id, game_player_play_id, frame_id)
 
@@ -379,14 +401,14 @@ results_comp = results %>%
 results_rmse_player = results_comp %>%
   group_by(game_player_play_id) %>%
   summarise(rmse = get_rmse(true_x = true_x, true_y = true_y,
-                            pred_x = x, pred_y = y))
+                            pred_x = pred_x, pred_y = pred_y))
 results_rmse_player %>% arrange(desc(rmse))
 
 #worst plays
 results_rmse_play = results_comp %>%
   group_by(game_play_id) %>%
   summarise(rmse = get_rmse(true_x = true_x, true_y = true_y,
-                            pred_x = x, pred_y = y))
+                            pred_x = pred_x, pred_y = pred_y))
 results_rmse_play %>% arrange(desc(rmse))
 
 
@@ -405,7 +427,7 @@ results_rmse_play %>%
 #across entire dataset
 results_comp %>% 
   summarise(rmse = get_rmse(true_x = true_x, true_y = true_y,
-                            pred_x = x, pred_y = y))
+                            pred_x = pred_x, pred_y = pred_y))
 
 #0.783 best
 
@@ -428,7 +450,7 @@ results_comp %>%
 results_comp %>% 
   filter(player_side == "Offense") %>%
   summarise(rmse = get_rmse(true_x = true_x, true_y = true_y,
-                            pred_x = x, pred_y = y))
+                            pred_x = pred_x, pred_y = pred_y))
 #defense across entire dataset
 results_comp %>% 
   filter(player_side == "Defense") %>%
@@ -481,16 +503,14 @@ ggplot(data = results_comp, mapping = aes(x = true_s, y = pred_s)) +
   labs(x = "True Speed", y = "Predicted Speed")
 
 #true vs predicted acc
-acc = ggplot(data = results_comp, mapping = aes(x = true_a, y = pred_a)) +
+ggplot(data = results_comp, mapping = aes(x = true_a, y = pred_a)) +
   geom_scattermore(alpha = 0.1) +
   xlim(c(min(c(results_comp$pred_a, results_comp$true_a))), 
        max(c(results_comp$pred_a, results_comp$true_a))) + 
   ylim(c(min(c(results_comp$pred_a, results_comp$true_a))), 
        max(c(results_comp$pred_a, results_comp$true_a))) +
-  theme_bw() +
+  theme_bw() + xlim(c(-10, 10)) + ylim(c(-10,10)) +
   labs(x = "True Acceleration", y = "Predicted Acceleration")
-acc
-acc + xlim(c(-10, 10)) + ylim(c(-10,10))
 #acceleration seems squashed a bit, maybe include higher true vals in training set?
 
 
@@ -498,21 +518,22 @@ acc + xlim(c(-10, 10)) + ylim(c(-10,10))
 #pred dir, s, a vs true dir, s, a
 group_id = 1
 dir_s_a_eval(group_id)
+#dir_s_a_eval_player_id(11)
 
 #single player movement
 curr_game_player_play_id = results_comp %>% 
   group_by(game_player_play_id) %>%
   filter(cur_group_id() == group_id) %>% 
   pull(game_player_play_id) %>% unique()
-#curr_game_player_play_id = 1
+#curr_game_player_play_id = 11
 plot_player_movement_pred(group_id = curr_game_player_play_id,
                           group_id_preds = results_comp %>% 
                             filter(game_player_play_id == curr_game_player_play_id) %>%
-                            select(frame_id, x, y) %>%
-                            rename(pred_x = x, pred_y = y))
+                            select(frame_id, pred_x, pred_y) %>%
+                            rename(pred_x = pred_x, pred_y = pred_y))
 
 #multiple players on play
-group_id = 1
+group_id = 2
 curr_game_play_id = results_comp %>% 
   group_by(game_play_id) %>%
   filter(cur_group_id() == group_id) %>% 
@@ -521,8 +542,8 @@ curr_game_play_id = results_comp %>%
 multi_player_movement_pred(group_id = curr_game_play_id,
                            group_id_preds = results_comp %>%
                              filter(game_play_id == curr_game_play_id) %>%
-                             select(game_player_play_id, frame_id, x, y) %>%
-                             rename(pred_x = x, pred_y = y))
+                             select(game_player_play_id, frame_id, pred_x, pred_y) %>%
+                             rename(pred_x = pred_x, pred_y = pred_y))
 
 
 

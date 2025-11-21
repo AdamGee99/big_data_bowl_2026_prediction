@@ -39,7 +39,7 @@ data_mod = data_mod %>% left_join(close_features, by = c("game_player_play_id", 
 #' could do this in parallel
 cv_rmse = function(features = "all", exclude_features = FALSE, iterations = 100, player_side = "both", response = "all", prop_cutoff = 0.4, post_throw_only = FALSE) {
   
-  unnnecessary_features = c("game_player_play_id", "game_play_id", "player_role",
+  unnnecessary_features = c("game_player_play_id", "game_play_id", "player_role", "throw", "num_frames_output",
                             "frame_id", "x", "y", "ball_land_x", "ball_land_y", "player_name")
   data_mod = data_mod %>%
     filter((throw == "post" | throw == "pre" & lead(throw) == "post") | prop_play_complete >= prop_cutoff) #filter by prop_play_complete
@@ -134,7 +134,7 @@ no_useless_features = cv_rmse(player_side = "offense", response = "dir", iterati
                                                    "closest_teammate_dist", "closest_teammate_dir_diff"))
 all_features
 no_useless_features #since this is the same as all_features we can get rid of them
-#' useless features:
+#' exclude features:
 #'  c("throw", "play_direction", "player_birth_date", "num_frames_output", "closest_teammate_dist", "closest_teammate_dir_diff"))
 
 
@@ -144,9 +144,8 @@ no_useless_features = cv_rmse(player_side = "defense", response = "dir", iterati
                               exclude_features = c("throw", "player_birth_date", "num_frames_output", "player_position", "play_direction"))
 all_features
 no_useless_features #since this is the same as all_features we can get rid of them
-#' useless features:
+#' exclude features:
 #'  c("throw", "player_birth_date", "num_frames_output", "player_position", "play_direction")
-
 
 
 ######### speed_o ######### 
@@ -156,7 +155,7 @@ no_useless_features = cv_rmse(player_side = "offense", response = "s", iteration
                               "closest_teammate_dist", "closest_teammate_dir_diff"))
 all_features
 no_useless_features
-#' useless features:
+#' exclude features:
 #'  c("throw", "num_frames_output", "play_direction", "player_birth_date", "player_position", "closest_teammate_dist", "closest_teammate_dir_diff"))
 
 
@@ -166,25 +165,30 @@ no_useless_features = cv_rmse(player_side = "defense", response = "s", iteration
                               exclude_features = c("throw", "num_frames_output", "player_birth_date", "player_position"))
 all_features
 no_useless_features
-#' useless features:
+#' exclude features:
 #'  c("throw", "num_frames_output", "player_birth_date", "player_position"))
 
 
 ######### acc_o ######### 
-all_features = cv_rmse(player_side = "defense", response = "a", iterations = 100,  post_throw_only = TRUE)
-no_useless_features = cv_rmse(player_side = "defense", response = "a", iterations = 100, post_throw_only = TRUE,
+all_features = cv_rmse(player_side = "offense", response = "a", iterations = 100,  post_throw_only = TRUE)
+no_useless_features = cv_rmse(player_side = "offense", response = "a", iterations = 100, post_throw_only = TRUE,
                               exclude_features = c("throw", "num_frames_output", "closest_teammate_dist", "closest_teammate_dir_diff"))
 all_features
 no_useless_features
-#' useless features:
-#'  c("throw", "num_frames_output", "player_birth_date", "player_position"))
+#' exclude features:
+#'  c("throw", "num_frames_output", "closest_teammate_dist", "closest_teammate_dir_diff")
 
 
-######### acc_D ######### 
+######### acc_d ######### 
+all_features = cv_rmse(player_side = "defense", response = "a", iterations = 100,  post_throw_only = TRUE)
+no_useless_features = cv_rmse(player_side = "defense", response = "a", iterations = 100, post_throw_only = TRUE,
+                              exclude_features = c("throw", "num_frames_output"))
+all_features
+no_useless_features
+#' exclude features:
+#'  c("throw", "num_frames_output")
 
 
-
-#acc
 
 
 #I don't think we can tune prop_play_complete here since our validation set is only post throw
@@ -295,11 +299,11 @@ speed_cat_d = fit_quick_model("speed", "defense", exclude_features = c("throw", 
 catboost.get_feature_importance(speed_cat_d) %>% format(scientific = FALSE) #feature importance
 
 #acc_o
-acc_cat_o = fit_quick_model("acc", "offense")
+acc_cat_o = fit_quick_model("acc", "offense", exclude_features = c("throw", "num_frames_output", "closest_teammate_dist", "closest_teammate_dir_diff"))
 catboost.get_feature_importance(acc_cat_o) %>% format(scientific = FALSE) #feature importance
 
 #acc_d
-acc_cat_d = fit_quick_model("acc", "defense")
+acc_cat_d = fit_quick_model("acc", "defense", exclude_features = c("throw", "num_frames_output"))
 catboost.get_feature_importance(acc_cat_d) %>% format(scientific = FALSE) #feature importance
 
 

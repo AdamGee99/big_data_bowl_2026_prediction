@@ -204,6 +204,10 @@ train = train %>% filter(!(game_play_id %in% 812))
 #'  -direction of nearest offensive player (the defense is trying to copy/predict this)
 #'  -direction to quarterback
 #'  
+#'  -time before throw
+#'  
+#'  -convert height to inches
+#'  
 #'  -makes me think, can we use predicted position as feature to predict future dir, s, a?
 #'  -we can predict next position before predicting future dir, s, a
 #'  -ie, use est_fut_dist_diff, est_fut_dir_diff

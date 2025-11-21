@@ -599,3 +599,50 @@ dir_s_a_eval = function(group_id) {
     plot_layout(guides = "collect")
 }
 
+
+#' function that compares prediced vs true dir, s, a for a single player on a play
+dir_s_a_eval_player_id = function(group_id) {
+  
+  dir_s_a_eval_df = results_comp %>%
+    filter(game_player_play_id == group_id) %>%
+    select(frame_id, est_dir, est_speed, est_acc, true_dir, true_s, true_a)
+  
+  dir_eval_plot = dir_s_a_eval_df %>% 
+    select(frame_id, est_dir, true_dir) %>%
+    pivot_longer(cols = -frame_id, names_to = "obs", values_to = "value") %>%
+    mutate(obs = ifelse(obs == "est_dir", "Predicted", "True")) %>%
+    ggplot(mapping = aes(x = frame_id, y = value, colour = obs)) + 
+    geom_line() +
+    scale_x_continuous(n.breaks = ceiling(nrow(dir_s_a_eval_df)/2)) +
+    scale_colour_manual(values = c("Predicted" = "orange", "True" = "green")) +
+    geom_point() + xlab("") + ylab("Direction") +
+    theme_bw()
+  
+  s_eval_plot = dir_s_a_eval_df %>% 
+    select(frame_id, est_speed, true_s) %>%
+    pivot_longer(cols = -frame_id, names_to = "obs", values_to = "value") %>%
+    mutate(obs = ifelse(obs == "est_speed", "Predicted", "True")) %>%
+    ggplot(mapping = aes(x = frame_id, y = value, colour = obs)) + 
+    geom_line() +
+    geom_point() + xlab("") + ylab("Speed") +
+    scale_x_continuous(n.breaks = ceiling(nrow(dir_s_a_eval_df)/2)) +
+    scale_colour_manual(values = c("Predicted" = "orange", "True" = "green")) +
+    theme_bw()
+  
+  a_eval_plot = dir_s_a_eval_df %>% 
+    select(frame_id, est_acc, true_a) %>%
+    pivot_longer(cols = -frame_id, names_to = "obs", values_to = "value") %>%
+    mutate(obs = ifelse(obs == "est_acc", "Predicted", "True")) %>%
+    ggplot(mapping = aes(x = frame_id, y = value, colour = obs)) + 
+    geom_line() +
+    geom_point() + xlab("Frame ID") + ylab("Acceleration") +
+    scale_x_continuous(n.breaks = ceiling(nrow(dir_s_a_eval_df)/2)) +
+    scale_colour_manual(values = c("Predicted" = "orange", "True" = "green")) +
+    theme_bw()
+  
+  wrap_plots(list(dir_eval_plot, s_eval_plot, a_eval_plot),
+             nrow = 3)  +
+    plot_layout(guides = "collect")
+}
+
+
