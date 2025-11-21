@@ -66,7 +66,7 @@ cv_train_models = function(df, cv_split) {
     
     #split df
     data_mod_train = df %>% filter(game_play_id %in% train_plays) 
-    data_mod_test = df %>% filter(game_play_id %in% test_plays)
+    data_mod_test = df %>% filter(game_play_id %in% test_plays, throw == "post") #only test on post throw
     
     
     #fit models on training fold
@@ -115,12 +115,12 @@ cv_train_models = function(df, cv_split) {
     
     #save features for each model
     if(fold == 1){
-      write.table(colnames(train_o %>% select(-any_of(dir_o_exclude_features))), file  = here("models", "cat_features_dir_o.csv"), row.names = FALSE)
-      write.table(colnames(train_o %>% select(-any_of(dir_d_exclude_features))), file  = here("models", "cat_features_dir_d.csv"), row.names = FALSE)
-      write.table(colnames(train_o %>% select(-any_of(speed_o_exclude_features))), file  = here("models", "cat_features_speed_o.csv"), row.names = FALSE)
-      write.table(colnames(train_o %>% select(-any_of(speed_d_exclude_features))), file  = here("models", "cat_features_speed_d.csv"), row.names = FALSE)
-      write.table(colnames(train_o %>% select(-any_of(acc_o_exclude_features))), file  = here("models", "cat_features_acc_o.csv"), row.names = FALSE)
-      write.table(colnames(train_o), file  = here("models", "cat_features_acc_d.csv"), row.names = FALSE)
+      write.table(colnames(train_o %>% select(-any_of(dir_o_exclude_features))), file  = here("models", "experimentation_cv", "cat_features_dir_o.csv"), row.names = FALSE)
+      write.table(colnames(train_o %>% select(-any_of(dir_d_exclude_features))), file  = here("models", "experimentation_cv", "cat_features_dir_d.csv"), row.names = FALSE)
+      write.table(colnames(train_o %>% select(-any_of(speed_o_exclude_features))), file  = here("models", "experimentation_cv", "cat_features_speed_o.csv"), row.names = FALSE)
+      write.table(colnames(train_o %>% select(-any_of(speed_d_exclude_features))), file  = here("models", "experimentation_cv", "cat_features_speed_d.csv"), row.names = FALSE)
+      write.table(colnames(train_o %>% select(-any_of(acc_o_exclude_features))), file  = here("models", "experimentation_cv", "cat_features_acc_o.csv"), row.names = FALSE)
+      write.table(colnames(train_o), file  = here("models", "experimentation_cv", "cat_features_acc_d.csv"), row.names = FALSE)
     }
     
     #fit
@@ -140,12 +140,12 @@ cv_train_models = function(df, cv_split) {
     acc_cat_d = catboost.train(learn_pool = cat_train_acc_d, test_pool = cat_test_acc_d, params = list(iterations = 1000, logging_level = "Silent",
                                                                                                        od_type = "Iter", od_wait = 100))
     #save models
-    catboost.save_model(dir_cat_o, model_path = here("models", paste0("fold_", fold), "offense", "dir.cbm"))
-    catboost.save_model(dir_cat_d, model_path = here("models", paste0("fold_", fold), "defense", "dir.cbm"))
-    catboost.save_model(speed_cat_o, model_path = here("models", paste0("fold_", fold), "offense", "speed.cbm"))
-    catboost.save_model(speed_cat_d, model_path = here("models", paste0("fold_", fold), "defense", "speed.cbm"))
-    catboost.save_model(acc_cat_o, model_path = here("models", paste0("fold_", fold), "offense", "acc.cbm"))
-    catboost.save_model(acc_cat_d, model_path = here("models", paste0("fold_", fold), "defense", "acc.cbm"))
+    catboost.save_model(dir_cat_o, model_path = here("models", "experimentation_cv", paste0("fold_", fold), "offense", "dir.cbm"))
+    catboost.save_model(dir_cat_d, model_path = here("models", "experimentation_cv", paste0("fold_", fold), "defense", "dir.cbm"))
+    catboost.save_model(speed_cat_o, model_path = here("models", "experimentation_cv", paste0("fold_", fold), "offense", "speed.cbm"))
+    catboost.save_model(speed_cat_d, model_path = here("models", "experimentation_cv", paste0("fold_", fold), "defense", "speed.cbm"))
+    catboost.save_model(acc_cat_o, model_path = here("models", "experimentation_cv",paste0("fold_", fold), "offense", "acc.cbm"))
+    catboost.save_model(acc_cat_d, model_path = here("models", "experimentation_cv",paste0("fold_", fold), "defense", "acc.cbm"))
   }
 }
 
@@ -166,12 +166,12 @@ plan(sequential) #quit parallel workers
 
 
 #features for catboost
-dir_o_features = read.csv(file = here("models", "cat_features_dir_o.csv")) %>% pull(x)
-dir_d_features = read.csv(file = here("models", "cat_features_dir_d.csv")) %>% pull(x)
-speed_o_features = read.csv(file = here("models", "cat_features_speed_o.csv")) %>% pull(x)
-speed_d_features = read.csv(file = here("models", "cat_features_speed_d.csv")) %>% pull(x)
-acc_o_features = read.csv(file = here("models", "cat_features_acc_o.csv")) %>% pull(x)
-acc_d_features = read.csv(file = here("models", "cat_features_acc_d.csv")) %>% pull(x)
+dir_o_features = read.csv(file = here("models", "experimentation_cv", "cat_features_dir_o.csv")) %>% pull(x)
+dir_d_features = read.csv(file = here("models", "experimentation_cv", "cat_features_dir_d.csv")) %>% pull(x)
+speed_o_features = read.csv(file = here("models", "experimentation_cv", "cat_features_speed_o.csv")) %>% pull(x)
+speed_d_features = read.csv(file = here("models", "experimentation_cv", "cat_features_speed_d.csv")) %>% pull(x)
+acc_o_features = read.csv(file = here("models", "experimentation_cv", "cat_features_acc_o.csv")) %>% pull(x)
+acc_d_features = read.csv(file = here("models", "experimentation_cv", "cat_features_acc_d.csv")) %>% pull(x)
 
 #function that takes previous models and predicts on each test fold
 #df is data_mod
@@ -202,12 +202,12 @@ cv_predict = function(df, pred_subset = FALSE) {
     }
     
     #load models for this fold
-    dir_cat_o = catboost.load_model(model_path = here("models", paste0("fold_", fold), "offense", "dir.cbm"))
-    dir_cat_d = catboost.load_model(model_path = here("models", paste0("fold_", fold), "defense", "dir.cbm"))
-    speed_cat_o = catboost.load_model(model_path = here("models", paste0("fold_", fold), "offense", "speed.cbm"))
-    speed_cat_d = catboost.load_model(model_path = here("models", paste0("fold_", fold), "defense", "speed.cbm"))
-    acc_cat_o = catboost.load_model(model_path = here("models", paste0("fold_", fold), "offense", "acc.cbm"))
-    acc_cat_d = catboost.load_model(model_path = here("models", paste0("fold_", fold), "defense", "acc.cbm"))
+    dir_cat_o = catboost.load_model(model_path = here("models", "experimentation_cv", paste0("fold_", fold), "offense", "dir.cbm"))
+    dir_cat_d = catboost.load_model(model_path = here("models", "experimentation_cv", paste0("fold_", fold), "defense", "dir.cbm"))
+    speed_cat_o = catboost.load_model(model_path = here("models", "experimentation_cv", paste0("fold_", fold), "offense", "speed.cbm"))
+    speed_cat_d = catboost.load_model(model_path = here("models", "experimentation_cv", paste0("fold_", fold), "defense", "speed.cbm"))
+    acc_cat_o = catboost.load_model(model_path = here("models", "experimentation_cv", paste0("fold_", fold), "offense", "acc.cbm"))
+    acc_cat_d = catboost.load_model(model_path = here("models", "experimentation_cv", paste0("fold_", fold), "defense", "acc.cbm"))
     
     #test using final models - the same oens used for kaggle submission
     # dir_cat_o = catboost.load_model(model_path = here("models", "final_models", "offense", "dir.cbm"))
@@ -428,6 +428,8 @@ results_rmse_play %>%
 results_comp %>% 
   summarise(rmse = get_rmse(true_x = true_x, true_y = true_y,
                             pred_x = pred_x, pred_y = pred_y))
+
+#last - 0.8171
 
 #0.783 best
 
