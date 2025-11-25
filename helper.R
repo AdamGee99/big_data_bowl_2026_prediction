@@ -71,49 +71,54 @@ get_closest_player_min_dist_dir = function(df) {
         id1 = df$game_player_play_id[i],
         player2 = df$game_player_play_id[j],
         id2 = df$game_player_play_id[j],
-        other_player_distance = get_dist(df$x[j] - df$x[i], df$y[j] - df$y[i]),
-        other_player_dir = get_dir(df$x[j] - df$x[i], df$y[j] - df$y[i]),
-        player_side = df$player_side[i],
-        other_player_side = df$player_side[j],
-        player_dir = df$est_dir[i]
+        player2_distance = get_dist(df$x[j] - df$x[i], df$y[j] - df$y[i]),
+        player1_dir = df$est_dir[i],
+        player2_dir = df$est_dir[j],
+        player12_dir = get_dir(df$x[j] - df$x[i], df$y[j] - df$y[i]),
+        player21_dir = get_dir(df$x[i] - df$x[j], df$y[i] - df$y[j]),
+        player1_side = as.character(df$player_side[i]),
+        player2_side = as.character(df$player_side[j])
       )
     }, simplify = FALSE) %>% bind_rows()  %>% 
       pivot_longer(cols = c(player1, player2),
                    names_to = "role",
                    values_to = "player1") %>%
-      mutate(player2 = ifelse(role == "player1", id2, id1)) %>% 
-      select(-c(id1, id2, role))
-    pairs
+      mutate(player2 = ifelse(role == "player1", id2, id1),
+             player1_proper_side = ifelse(role == "player1", player1_side, player2_side),
+             player2_proper_side = ifelse(role == "player2", player1_side, player2_side),
+             player1_proper_dir = ifelse(role == "player1", player1_dir, player2_dir),
+             dir_to_other_player = ifelse(role == "player1", player12_dir, player21_dir)) %>% 
+      select(-c(id1, id2, role, player1_side, player2_side, player1_dir, player2_dir, player12_dir, player21_dir)) %>%
+      rename(player1_side = player1_proper_side,
+             player2_side = player2_proper_side,
+             player1_dir = player1_proper_dir)
     
-    #closest teammate
-    closest_teamate = pairs %>%
-      filter(player_side == other_player_side) %>% 
-      group_by(player1) %>%
-      mutate(distance = min(other_player_distance)) %>% 
-      filter(distance == other_player_distance) %>%
-      mutate(closest_teammate_dir_diff = min_pos_neg_dir(player_dir - other_player_dir)) %>% 
-      rename(closest_teammate_dist = distance, game_player_play_id = player1) %>%
-      select(game_player_play_id, closest_teammate_dist, closest_teammate_dir_diff)
+    min_dist = pairs %>%
+      group_by(player1, player2_side) %>%
+      summarise(player2_distance = min(player2_distance)) %>%
+      left_join(pairs, by = c("player1", "player2_side", "player2_distance")) %>%
+      ungroup() %>%
+      mutate(other_player_dir_diff = min_pos_neg_dir(dir_to_other_player - player1_dir)) %>%
+      select(-c(dir_to_other_player, player1_dir, player2)) %>%
+      rename(game_player_play_id = player1)
     
-    #closest opponent
-    closest_opponent =  pairs %>%
-      filter(player_side != other_player_side) %>% 
-      group_by(player1) %>%
-      mutate(distance = min(other_player_distance)) %>% 
-      filter(distance == other_player_distance) %>%
-      mutate(closest_opponent_dir_diff = min_pos_neg_dir(player_dir - other_player_dir)) %>% 
-      rename(closest_opponent_dist = distance, game_player_play_id = player1) %>%
-      select(game_player_play_id, closest_opponent_dist, closest_opponent_dir_diff)
+    #closest opponent and teammate distance and corresponding dir diff
+    opponent = min_dist %>% filter(player1_side != player2_side) %>% 
+      select(-c(player1_side, player2_side)) %>% 
+      rename(closest_opponent_dist = player2_distance,
+             closest_opponent_dir_diff = other_player_dir_diff)
+    teammate = min_dist %>% filter(player1_side == player2_side) %>%
+      select(-c(player1_side, player2_side)) %>% 
+      rename(closest_teammate_dist = player2_distance,
+             closest_teammate_dir_diff = other_player_dir_diff)
     
-    full_join(closest_teamate, closest_opponent, by = "game_player_play_id")
+    full_join(teammate, opponent, by = "game_player_play_id")
   }
 }
 
-# 
-# ### SOMETHING IS WRONG HERE - ITS NOT CALCULATING CLOSEST_OPP_DIR_DIFF PROPERLY
-# all_player_curr_frame = train %>% 
-#   filter(game_play_id == 6, frame_id == 24) %>%
-#   select(game_player_play_id, game_play_id, frame_id, x, y, est_dir, player_side)
+
+
+##### CAN ALSO KEEP OTHER PLAYERS DIST/DIRS TOO, the calculations wouldnt be slower since were computing all the distances, just require more memory
 
 
 
