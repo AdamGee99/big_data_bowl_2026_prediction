@@ -195,7 +195,7 @@ train = train %>% filter(!(game_play_id %in% 812))
 #'  -dir_diff/dist to nearest teammate
 #'  -dir_diff/dist to nearest opponent
 #'  
-#'  -time complete in play (num_frames post throw/10)
+#'  -time elapsed post throw (num_frames post throw/10)
 #'  -time until play complete ((max frame - current frame)/10)
 #'  
 #'  
@@ -425,10 +425,13 @@ data_mod %>% filter(throw == "post" & lag(throw) == "pre") %>% pull(prop_play_co
 data_mod %>% filter(throw == "post") %>% select(fut_dir_diff, fut_s_diff, fut_s, fut_a_diff) %>% summary()
 
 #histograms of response
-data_mod %>% filter(throw == "post") %>% pull(fut_dir_diff) %>% hist(breaks = 300, xlim = c(-30, 30))
-data_mod %>% filter(throw == "post") %>% pull(fut_s_diff) %>% hist(breaks = 300, xlim = c(-2, 2))
-data_mod %>% filter(throw == "post") %>% pull(fut_s) %>% hist(breaks = 200)
-data_mod %>% filter(throw == "post") %>% pull(fut_a_diff) %>% hist(breaks = 600, xlim = c(-11, 11))
+data_mod %>% filter(throw == "post") %>% pull(est_dir) %>% hist()
+data_mod %>% filter(throw == "post") %>% pull(est_speed) %>% hist(breaks = 100)
+data_mod %>% filter(throw == "post") %>% pull(est_acc) %>% hist(xlim = c(-30, 30), breaks = 500)
+
+data_mod %>% filter(throw == "post") %>% pull(fut_dir_diff) %>% hist(xlim = c(-60, 60), breaks = 200)
+data_mod %>% filter(throw == "post") %>% pull(fut_s_diff) %>% hist(breaks = 500, xlim = c(-2, 2))
+data_mod %>% filter(throw == "post") %>% pull(fut_a_diff) %>% hist(xlim = c(-30, 30), breaks = 500)
 
 data_mod %>% filter(throw == "post") %>% pull(fut_dir_diff) %>% quantile(probs = c(0.001, 0.01, 0.99, 0.999), na.rm = TRUE)
 data_mod %>% filter(throw == "post") %>% pull(fut_s_diff) %>% quantile(probs = c(0.001, 0.01, 0.99, 0.999), na.rm = TRUE)

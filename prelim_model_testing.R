@@ -57,7 +57,7 @@ cv_rmse = function(features = "all", exclude_features = FALSE, iterations = 100,
   #no need to split into training/test - catboost will do that
   cat_df = data_mod %>% 
     filter(abs(fut_s_diff) <= 1, #filter out the crazy speeds/accs for training
-           abs(fut_a_diff) <= 6) %>%
+           abs(fut_a_diff) <= 5) %>%
     filter(!is.na(fut_dir_diff) & !is.na(fut_s) & !is.na(fut_a_diff)) %>% #remove NA responses
     select(-all_of(unnnecessary_features))
   
@@ -277,9 +277,8 @@ fit_quick_model = function(response, player_side, exclude_features = FALSE) {
     }
   }
   #fit
-  catboost.train(learn_pool = pool, 
-                 params = list(iterations = 100, metric_period = 10, 
-                               od_type = "Iter", od_wait = 50)) 
+  catboost.train(learn_pool = pool, params = list(iterations = 100, metric_period = 10, 
+                                                  od_type = "Iter", od_wait = 50)) 
 }
 
 #dir_o
