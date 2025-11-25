@@ -87,7 +87,9 @@ train = train %>%
   ungroup() %>%
   group_by(game_id, nfl_id, play_id) %>%
   mutate(game_player_play_id = cur_group_id()) %>%
-  ungroup()
+  ungroup() %>%
+  #convert height to inches
+  mutate(player_height = 12*as.numeric(sub("-.*", "", player_height)) + as.numeric(sub(".*-", "", player_height)))
 
 train$game_play_id %>% unique() %>% length() #14,108 plays
 train$game_player_play_id %>% unique() %>% length() #173,150 player-plays
@@ -207,14 +209,6 @@ train = train %>% filter(!(game_play_id %in% 812))
 #'  -time before throw
 #'  
 #'  -convert height to inches
-#'  
-#'  -makes me think, can we use predicted position as feature to predict future dir, s, a?
-#'  -we can predict next position before predicting future dir, s, a
-#'  -ie, use est_fut_dist_diff, est_fut_dir_diff
-#'      -problem here is that the predicted position is just a straight line away in constant speed/acc so nothing is really changing, not usefeul
-#'      
-#'  -what if we somehow used the predicted position using the updated dir, s, a
-#'  -like we use the predictions as a feature? - might be weird, might cause overfitting
 #'  
 #'  
 #'  -whether ball_land_xy is close to boundary or not
