@@ -138,7 +138,10 @@ est_kinematics = function(df) {
     mutate(est_speed = ifelse(throw == "post", est_speed, s), #use true recorded values pre throw if possible
            est_dir = ifelse(throw == "post", est_dir, dir),
            max_frame_id = max(frame_id)) %>% #the maximum frame id for this player on this play
-    ungroup() 
+    ungroup() %>%
+    group_by(game_player_play_id, throw) %>% #add time elapsed post throw
+    mutate(time_elapsed_post_throw = ifelse(throw == "pre", NA, row_number()*0.1)) %>%
+    ungroup()
   
   kin_df
 }
@@ -226,7 +229,7 @@ derived_features = function(df) {
            #direction to closest player
            
            ) %>%
-    select(-c(out_bounds_dir, curr_ball_land_dir)) 
+    select(-c(out_bounds_dir, curr_ball_land_dir))
     
   derived_df
 }
