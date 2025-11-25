@@ -234,27 +234,27 @@ train_derived = train %>%
   change_in_kinematics() %>%
   derived_features()
 
+
+
 #get remaining closest player features
 #this takes the longest
 #only do it on prop_play_complete >= 0.3 since thats at least what we train the models on
 
-#this is done in parallel
-library(foreach)
-library(doParallel)
-# Set up cluster
-num_cores = 15
-cl = makeCluster(num_cores)
-registerDoParallel(cl)
+#just derive the close features here and join them back rather than applying it to the entire train df
+train_close_features = train %>% filter(prop_play_complete >= 0.3) %>% #dont need to derive on start of play
+  select(game_play_id, game_player_play_id, player_side, player_to_predict, frame_id, x, y, est_dir)
+
+plan(sequential) #quit any existing parallel workers
 start = Sys.time()
-close_player_features = train_derived %>% 
-  filter(#game_play_id %in% 1:100,#for testing speed
-         prop_play_complete >= 0.3) %>% #not using the start of plays
-  closest_player_dist_dir() %>%
-  select(game_player_play_id, frame_id, starts_with("closest_"))
+close_player_features = train_close_features %>% 
+  #filter(game_play_id %in% 1:100) %>% #for testing speed
+  closest_player_dist_dir()
 end = Sys.time()
 end-start
-write.csv(close_player_features, file = here("data", "closest_dir_dist_features.csv"), row.names = FALSE)
-#since we only fit on prop_play_complete > 0.4, just derive the features on that!!!!!!!!
+plan(sequential) #quit parallel workers
+
+
+#write.csv(close_player_features, file = here("data", "closest_dir_dist_features.csv"), row.names = FALSE)
 
 
 #join the closest features to train_derived

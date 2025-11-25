@@ -95,7 +95,7 @@ get_closest_player_min_dist_dir = function(df) {
     
     min_dist = pairs %>%
       group_by(player1, player2_side) %>%
-      summarise(player2_distance = min(player2_distance)) %>%
+      summarise(player2_distance = min(player2_distance), .groups = "keep") %>%
       left_join(pairs, by = c("player1", "player2_side", "player2_distance")) %>%
       ungroup() %>%
       mutate(other_player_dir_diff = min_pos_neg_dir(dir_to_other_player - player1_dir)) %>%
@@ -173,35 +173,48 @@ change_in_kinematics = function(df) {
 
 #' function that adds distance and direction to nearest teammate and opposing player
 closest_player_dist_dir = function(df) {
+  #set up parallel and progress
+  handlers(global = TRUE)
+  handlers("progress")
+  
+  registerDoFuture()
+  plan(multisession, workers = 15) #out of 20 cores
+  
   game_play_ids = df$game_play_id %>% unique()
   
-  closest_results = foreach(game_play = game_play_ids, .combine = rbind, .packages = c("tidyverse", "doParallel", "here")) %dopar% { #loop through the plays
-    source(here("helper.R"))
-    curr_game_play = df %>% filter(game_play_id == game_play)
-    frames = curr_game_play$frame_id %>% unique()
-    
-    #loop through the frames in a play
-    foreach(frame = frames, .combine = rbind) %do% {
-      #all players in this frame
-      curr_frame_all_players = curr_game_play %>% 
-        filter(frame_id == frame) 
+  #parallelize here - over the plays
+  with_progress({
+    p = progressor(steps = length(game_play_ids)) #progress
+  
+    closest_results = foreach(game_play = game_play_ids, .combine = rbind, .packages = c("tidyverse", "doParallel", "here")) %dopar% { #loop through the plays
+      p(sprintf("Iteration %d", game_play)) #progress 
+      curr_game_play = df %>% filter(game_play_id == game_play)
+      frames = curr_game_play$frame_id %>% unique()
       
-      #get closest player features for players to predict
-      closest_features = curr_frame_all_players %>%
-        filter(player_to_predict) %>%
-        get_closest_player_min_dist_dir()
-      
-      #join the closest features back
-      curr_frame_all_players = curr_frame_all_players %>%
-        full_join(closest_features, by = "game_player_play_id")
-      curr_frame_all_players
+      #loop through the frames in a play
+      foreach(frame = frames, .combine = rbind) %do% {
+        #all players in this frame
+        curr_frame_all_players = curr_game_play %>% 
+          filter(frame_id == frame) 
+        
+        #get closest player features for players to predict
+        closest_features = curr_frame_all_players %>%
+          filter(player_to_predict) %>%
+          get_closest_player_min_dist_dir()
+        
+        curr_frame_all_players %>% left_join(closest_features, by = "game_player_play_id")
+      }
     }
-  }
-  #get direction diff
-  closest_results = closest_results %>%
-    arrange(game_play_id, game_player_play_id, frame_id) #arrange in right order
-  closest_results
+  })
+  
+  #return results
+  closest_results %>% arrange(game_play_id, game_player_play_id, frame_id)
 }
+
+
+
+### we might not actually be getting closest player dist pre throw since we filter on players_to_predict even before the throw, 
+#so it could be filtering out teamamtes/opponents that are closer but not where the ball will be thrown
 
 
 
