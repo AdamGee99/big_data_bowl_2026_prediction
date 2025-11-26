@@ -306,7 +306,7 @@ fit_quick_model = function(response, player_side, exclude_features = FALSE) {
            abs(fut_s_diff) <= 1.5,
            abs(fut_a_diff) <= 6) %>%
     filter((throw == "post" | throw == "pre" & lead(throw) == "post") | prop_play_complete >= 0.4) %>% #filter prop_play_complete >0.4
-    filter(!is.na(fut_dir_diff) & !is.na(fut_s) & !is.na(fut_a_diff)) %>% #remove NA responses
+    filter(!is.na(fut_dir_diff) & !is.na(fut_s) & !is.na(fut_a_diff) & !is.na(fut_a)) %>% #remove NA responses
     filter(game_player_play_id != 812) %>% #remove weird play
     select(-all_of(unnnecessary_features))
   
@@ -315,7 +315,7 @@ fit_quick_model = function(response, player_side, exclude_features = FALSE) {
   }
   
   if(player_side == "offense") {
-    cat_df_labels = cat_df %>% filter(player_side == "Offense") %>% select(fut_dir_diff, fut_s, fut_a_diff)
+    cat_df_labels = cat_df %>% filter(player_side == "Offense") %>% select(fut_dir_diff, fut_s, fut_a_diff, fut_a)
     cat_df = cat_df %>% filter(player_side == "Offense") %>% select(-c(player_side, starts_with("fut_")))
     
     #offense pools
@@ -326,12 +326,12 @@ fit_quick_model = function(response, player_side, exclude_features = FALSE) {
       pool = catboost.load_pool(cat_df, label = log(cat_df_labels$fut_s))
     }
     if(response == "acc") {
-      pool = catboost.load_pool(cat_df, label = cat_df_labels$fut_a_diff)
+      pool = catboost.load_pool(cat_df, label = cat_df_labels$fut_a)
     }
   }
   
   if(player_side == "defense") {
-    cat_df_labels = cat_df %>% filter(player_side == "Defense") %>% select(fut_dir_diff, fut_s, fut_a_diff)
+    cat_df_labels = cat_df %>% filter(player_side == "Defense") %>% select(fut_dir_diff, fut_s, fut_a_diff, fut_a)
     cat_df = cat_df %>% filter(player_side == "Defense") %>% select(-c(player_side, starts_with("fut_")))
     
     #defense pools
@@ -342,7 +342,7 @@ fit_quick_model = function(response, player_side, exclude_features = FALSE) {
       pool = catboost.load_pool(cat_df, label = log(cat_df_labels$fut_s))
     }
     if(response == "acc") {
-      pool = catboost.load_pool(cat_df, label = cat_df_labels$fut_a_diff)
+      pool = catboost.load_pool(cat_df, label = cat_df_labels$fut_a)
     }
   }
   #fit
@@ -350,29 +350,37 @@ fit_quick_model = function(response, player_side, exclude_features = FALSE) {
                                                   od_type = "Iter", od_wait = 50)) 
 }
 
+#exclude features
+dir_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "player_position")
+dir_d_exclude_features = c("player_weight", "player_position")
+speed_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "player_height", "player_weight", "player_position", "throw")
+speed_d_exclude_features = c("player_height", "player_weight", "player_position", "est_dir", "throw", "time_elapsed")
+acc_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "est_dir", "player_position")
+acc_d_exclude_features = c("player_position")
+
 #dir_o
-dir_cat_o = fit_quick_model("dir", "offense", exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff"))
+dir_cat_o = fit_quick_model("dir", "offense", exclude_features = dir_o_exclude_features)
 catboost.get_feature_importance(dir_cat_o) #feature importance
 
 #dir_d
-dir_cat_d = fit_quick_model("dir", "defense", exclude_features = c("player_position"))
+dir_cat_d = fit_quick_model("dir", "defense", exclude_features = dir_d_exclude_features)
 catboost.get_feature_importance(dir_cat_d) #feature importance
 
 #speed_o
-speed_cat_o = fit_quick_model("speed", "offense", exclude_features = c("throw", "num_frames_output", "play_direction", "player_birth_date", "closest_teammate_dist", "closest_teammate_dir_diff", "player_height", "player_position"))
-catboost.get_feature_importance(speed_cat_o) %>% format(scientific = FALSE) #feature importance
+speed_cat_o = fit_quick_model("speed", "offense", exclude_features = speed_o_exclude_features)
+catboost.get_feature_importance(speed_cat_o)
 
 #speed_d
-speed_cat_d = fit_quick_model("speed", "defense", exclude_features = c("throw", "num_frames_output", "player_birth_date", "player_position"))
-catboost.get_feature_importance(speed_cat_d) %>% format(scientific = FALSE) #feature importance
+speed_cat_d = fit_quick_model("speed", "defense", exclude_features = speed_d_exclude_features)
+catboost.get_feature_importance(speed_cat_d) 
 
 #acc_o
-acc_cat_o = fit_quick_model("acc", "offense", exclude_features = c("throw", "num_frames_output", "closest_teammate_dist", "closest_teammate_dir_diff"))
-catboost.get_feature_importance(acc_cat_o) %>% format(scientific = FALSE) #feature importance
+acc_cat_o = fit_quick_model("acc", "offense", exclude_features = acc_o_exclude_features)
+catboost.get_feature_importance(acc_cat_o) 
 
 #acc_d
-acc_cat_d = fit_quick_model("acc", "defense", exclude_features = c("throw", "num_frames_output"))
-catboost.get_feature_importance(acc_cat_d) %>% format(scientific = FALSE) #feature importance
+acc_cat_d = fit_quick_model("acc", "defense", exclude_features = acc_d_exclude_features)
+catboost.get_feature_importance(acc_cat_d) 
 
 
 

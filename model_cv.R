@@ -70,8 +70,8 @@ cv_train_models = function(df, cv_split) {
              abs(est_acc) <= 15,
              abs(fut_s_diff) <= 1.5,
              abs(fut_a_diff) <= 6) %>%
-      filter((throw == "post" | throw == "pre" & lead(throw) == "post") | prop_play_complete >= 0.4) %>% #filter prop_play_complete >0.4
-      filter(!is.na(fut_dir_diff) & !is.na(fut_s) & !is.na(fut_a_diff)) %>% #remove NA responses
+      filter(throw == "post" | prop_play_complete >= 0.4) %>% #filter prop_play_complete >0.4
+      filter(!is.na(fut_dir_diff) & !is.na(fut_s) & !is.na(fut_a)) %>% #remove NA responses
       filter(game_player_play_id != 812) #remove weird play
     
     
@@ -101,36 +101,36 @@ cv_train_models = function(df, cv_split) {
     test_d_labels = cat_test_df %>% filter(player_side == "Defense") %>% select(c(starts_with("fut_")))
     
     #exclude certain features for each model
-    dir_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff")
-    dir_d_exclude_features = c("player_weight")
+    dir_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "player_position")
+    dir_d_exclude_features = c("player_weight", "player_position")
     speed_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "player_height", "player_weight", "player_position", "throw")
     speed_d_exclude_features = c("player_height", "player_weight", "player_position", "est_dir", "throw", "time_elapsed")
-    acc_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "est_dir")
-    acc_d_exclude_features = c()
+    acc_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "est_dir", "player_position")
+    acc_d_exclude_features = c("player_position")
      
     #pool train sets
     cat_train_dir_o = catboost.load_pool(train_o %>% select(-any_of(dir_o_exclude_features)), label = train_o_labels$fut_dir_diff)
     cat_train_dir_d = catboost.load_pool(train_d %>% select(-any_of(dir_d_exclude_features)), label = train_d_labels$fut_dir_diff)
     cat_train_speed_o = catboost.load_pool(train_o %>% select(-any_of(speed_o_exclude_features)), label = log(train_o_labels$fut_s)) #try log transform since speed is strictly positive
     cat_train_speed_d = catboost.load_pool(train_d %>% select(-any_of(speed_d_exclude_features)), label = log(train_d_labels$fut_s)) #try log transform since speed is strictly positive
-    cat_train_acc_o = catboost.load_pool(train_o %>% select(-any_of(acc_o_exclude_features)), label = train_o_labels$fut_a_diff)
-    cat_train_acc_d = catboost.load_pool(train_d %>% select(-any_of(acc_d_exclude_features)), label = train_d_labels$fut_a_diff)
+    cat_train_acc_o = catboost.load_pool(train_o %>% select(-any_of(acc_o_exclude_features)), label = train_o_labels$fut_a)
+    cat_train_acc_d = catboost.load_pool(train_d %>% select(-any_of(acc_d_exclude_features)), label = train_d_labels$fut_a)
     #pool test sets
     cat_test_dir_o = catboost.load_pool(test_o %>% select(-any_of(dir_o_exclude_features)), label = test_o_labels$fut_dir_diff)
     cat_test_dir_d = catboost.load_pool(test_d %>% select(-any_of(dir_d_exclude_features)), label = test_d_labels$fut_dir_diff)
     cat_test_speed_o = catboost.load_pool(test_o %>% select(-any_of(speed_o_exclude_features)), label = log(test_o_labels$fut_s)) #try log transform since speed is strictly positive
     cat_test_speed_d = catboost.load_pool(test_d %>% select(-any_of(speed_d_exclude_features)), label = log(test_d_labels$fut_s)) #try log transform since speed is strictly positive
-    cat_test_acc_o = catboost.load_pool(test_o %>% select(-any_of(acc_o_exclude_features)), label = test_o_labels$fut_a_diff)
-    cat_test_acc_d = catboost.load_pool(test_d %>% select(-any_of(acc_d_exclude_features)), label = test_d_labels$fut_a_diff)
-    
+    cat_test_acc_o = catboost.load_pool(test_o %>% select(-any_of(acc_o_exclude_features)), label = test_o_labels$fut_a)
+    cat_test_acc_d = catboost.load_pool(test_d %>% select(-any_of(acc_d_exclude_features)), label = test_d_labels$fut_a)
+  
     #fit
     #just use basic tuning parameters now
-    dir_cat_o = catboost.train(learn_pool = cat_train_dir_o, test_pool = cat_test_dir_o, params = list(iterations = 200, logging_level = "Silent",
+    dir_cat_o = catboost.train(learn_pool = cat_train_dir_o, test_pool = cat_test_dir_o, params = list(iterations = 400, logging_level = "Silent",
                                                                                                        od_type = "Iter", od_wait = 100)) #num iterations to go past min test error before stop
-    dir_cat_d = catboost.train(learn_pool = cat_train_dir_d, test_pool = cat_test_dir_d, params = list(iterations = 350, logging_level = "Silent",
+    dir_cat_d = catboost.train(learn_pool = cat_train_dir_d, test_pool = cat_test_dir_d, params = list(iterations = 400, logging_level = "Silent",
                                                                                                        od_type = "Iter", od_wait = 100))
     
-    speed_cat_o = catboost.train(learn_pool = cat_train_speed_o, test_pool = cat_test_speed_o, params = list(iterations = 400, logging_level = "Silent",
+    speed_cat_o = catboost.train(learn_pool = cat_train_speed_o, test_pool = cat_test_speed_o, params = list(iterations = 500, logging_level = "Silent",
                                                                                                              od_type = "Iter", od_wait = 100))
     speed_cat_d = catboost.train(learn_pool = cat_train_speed_d, test_pool = cat_test_speed_d, params = list(iterations = 500, logging_level = "Silent",
                                                                                                              od_type = "Iter", od_wait = 100))
@@ -266,7 +266,7 @@ cv_predict = function(df, cv_split, pred_subset = FALSE, model_path = "experimen
             #update frame stuff
             mutate(frame_id = frame,
                    prop_play_complete = frame/(last_frame_id + num_frames_output),
-                   throw = as.factor(ifelse(output_frame_id > 1, "post", "pre")),
+                   throw = as.factor("post"),
                    time_until_play_complete = ((last_frame_id + num_frames_output) - frame_id)*0.1,
                    time_elapsed_post_throw = output_frame_id - 1,
                    time_elapsed = frame*0.1)
@@ -274,7 +274,7 @@ cv_predict = function(df, cv_split, pred_subset = FALSE, model_path = "experimen
           #if frame is pre throw we already know the features and everything to predict x,y,dir,s,a
           
           #if frame is post throw then we need to update position and dir, s, a based on previous iterations predictions
-          if (unique(curr_frame_all_players$throw) == "post") { 
+          if (output_frame_id > 1) { 
             #update current x, y dir, s, a as previous prediction
             prev_frame_all_players = result
             curr_frame_all_players = curr_frame_all_players %>%
@@ -353,10 +353,10 @@ cv_predict = function(df, cv_split, pred_subset = FALSE, model_path = "experimen
               mutate(pred_dir = est_dir + catboost.predict(dir_cat, dir_pool),
                      pred_s = catboost.predict(speed_cat, speed_pool), 
                      pred_s = exp(pred_s), #exponentiate back to original scale
-                     pred_a = est_acc + catboost.predict(acc_cat, acc_pool))
+                     pred_a = catboost.predict(acc_cat, acc_pool))
             
             #same colnames as previous iteration
-            if(curr_frame_player$throw != "pre") {curr_frame_all_players = curr_frame_all_players %>% select(all_of(colnames(result)))} 
+            if(output_frame_id > 1) {curr_frame_all_players = curr_frame_all_players %>% select(all_of(colnames(result)))} 
             
             curr_frame_player
           }
@@ -373,12 +373,10 @@ cv_predict = function(df, cv_split, pred_subset = FALSE, model_path = "experimen
 #run CV
 #make sure data_mod and cv_split are the same as cv_train()
 start = Sys.time()
-results = cv_predict(data_mod, split, model_path = "exp_final_models", pred_subset = 100, use_closest_features = TRUE) 
+results = cv_predict(data_mod, split, model_path = "experimentation_cv", pred_subset = 100, use_closest_features = TRUE) 
 end = Sys.time()
 end - start
 plan(sequential) #quit parallel workers
-
-#entire dataset takes 29 min
 
 
 
@@ -396,6 +394,11 @@ results_comp %>%
 
 #final_models - 0.762 all 
 #kaggle_best - 0.781 all
+#exp_final_models - 0.727 all
+
+
+#exp_final_models - pred_subset = 100, close_features = FALSE - 0.651
+#exp_final_models - pred_subset = 100, close_features = TRUE - 0.637
 
 
 #' LOG OF TUNING:
@@ -599,7 +602,7 @@ plot_player_movement_pred(group_id = curr_game_player_play_id,
                             rename(pred_x = pred_x, pred_y = pred_y))
 
 #multiple players on play
-group_id = 1
+group_id = 6
 curr_game_play_id = results_comp %>% 
   group_by(game_play_id) %>%
   filter(cur_group_id() == group_id) %>% 
@@ -634,7 +637,8 @@ data_mod_full = data_mod %>%
 unnnecessary_features = c("game_player_play_id", "game_play_id", "player_role", "num_frames_output", "player_birth_date", 
                           "x", "y", "ball_land_x", "ball_land_y", "player_name", "est_dir", "play_direction")
 ############# ignore closest player features for now ###############
-cat_train_df = data_mod_full %>% select(-all_of(unnnecessary_features), -starts_with("closest_"))
+#cat_train_df = data_mod_full %>% select(-all_of(unnnecessary_features), -starts_with("closest_"))
+cat_train_df = data_mod_full %>% select(-all_of(unnnecessary_features))
 #v1 kaggle
 #cat_train_df = data_mod_full %>% select(starts_with("fut_"), all_of(kaggle_best_features), player_side, -starts_with("closest_"))
 
@@ -645,7 +649,7 @@ train_o_labels = cat_train_df %>% filter(player_side == "Offense") %>% select(c(
 train_d_labels = cat_train_df %>% filter(player_side == "Defense") %>% select(c(starts_with("fut_")))
 
 #exclude certain features for each model
-dir_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "player_postion")
+dir_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "player_position")
 dir_d_exclude_features = c("player_weight", "player_position")
 speed_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "player_height", "player_weight", "player_position", "throw")
 speed_d_exclude_features = c("player_height", "player_weight", "player_position", "est_dir", "throw", "time_elapsed")
@@ -682,7 +686,7 @@ speed_cat_d$feature_importances
 
 acc_cat_o = catboost.train(learn_pool = cat_train_acc_o, params = list(iterations = 7000, metric_period = 50)) #950
 acc_cat_o$feature_importances
-acc_cat_d = catboost.train(learn_pool = cat_train_acc_d, params = list(iterations = 9000, metric_period = 50)) #1200
+acc_cat_d = catboost.train(learn_pool = cat_train_acc_d, params = list(iterations = 11000, metric_period = 50)) #1200
 acc_cat_d$feature_importances
 
 #save models

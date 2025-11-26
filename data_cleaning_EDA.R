@@ -431,7 +431,8 @@ data_mod = train %>%
   mutate(across(where(is.character), as.factor)) %>%
   mutate(est_speed = ifelse(est_speed == 0, 0.01, est_speed)) %>% #0.01 is the min recorded/estimated speed
   group_by(game_player_play_id) %>%
-  mutate(fut_s = lead(est_speed)) %>%
+  mutate(fut_s = lead(est_speed),
+         fut_a = lead(est_acc)) %>%
   ungroup()
 
 #what proportion of play being complete is ball thrown
@@ -445,7 +446,7 @@ data_mod %>% filter(throw == "post" & lag(throw) == "pre") %>% pull(prop_play_co
 
 
 #filter out the dir,s,a diffs in training set that are clearly impossible
-data_mod %>% filter(throw == "post") %>% select(fut_dir_diff, fut_s_diff, fut_s, fut_a_diff) %>% summary()
+data_mod %>% filter(throw == "post") %>% select(fut_dir_diff, fut_s_diff, fut_s, fut_a_diff, fut_a) %>% summary()
 
 #histograms of response
 data_mod %>% filter(throw == "post") %>% pull(est_dir) %>% hist()
