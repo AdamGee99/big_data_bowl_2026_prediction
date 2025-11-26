@@ -588,6 +588,7 @@ dir_s_a_eval = function(group_id) {
   
   dir_eval_plot = dir_s_a_eval_df %>% 
     select(frame_id, est_dir, true_dir) %>%
+    mutate(est_dir = est_dir %% 360) %>%
     pivot_longer(cols = -frame_id, names_to = "obs", values_to = "value") %>%
     mutate(obs = ifelse(obs == "est_dir", "Predicted", "True")) %>%
     ggplot(mapping = aes(x = frame_id, y = value, colour = obs)) + 
@@ -634,6 +635,7 @@ dir_s_a_eval_player_id = function(group_id) {
   
   dir_eval_plot = dir_s_a_eval_df %>% 
     select(frame_id, est_dir, true_dir) %>%
+    mutate(est_dir = est_dir %% 360) %>%
     pivot_longer(cols = -frame_id, names_to = "obs", values_to = "value") %>%
     mutate(obs = ifelse(obs == "est_dir", "Predicted", "True")) %>%
     ggplot(mapping = aes(x = frame_id, y = value, colour = obs)) + 
