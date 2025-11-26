@@ -271,13 +271,14 @@ it_2000 = cv_rmse(side = "defense", response = "a", iterations = 2000, exclude_f
 it_3000 = cv_rmse(side = "defense", response = "a", iterations = 3000, exclude_features = curr_exclude_features)
 it_5000 = cv_rmse(side = "defense", response = "a", iterations = 5000, exclude_features = curr_exclude_features)
 it_7500 = cv_rmse(side = "defense", response = "a", iterations = 7500, exclude_features = curr_exclude_features)
+it_15000 = cv_rmse(side = "defense", response = "a", iterations = 15000, exclude_features = curr_exclude_features)
 
 it_2000
 it_3000
 it_5000
 it_7500
 
-#like 10000 best
+#like 11000 best
 
 
 #unfortunately we cant really get feature importance here either - if we want that, need to fit the models individually below - don't need test set
