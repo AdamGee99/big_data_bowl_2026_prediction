@@ -9,8 +9,8 @@ library(catboost)
 
 
 source(here("helper.R"))
-train = read.csv(file = here("data", "train_clean_no_close_player.csv"))
-close_features = read.csv(here("data", "closest_dir_dist_features.csv"))
+close_features = read.csv(here("data", "closest_dir_dist_features.csv")) %>%
+  select(game_player_play_id, frame_id, starts_with("closest_"))
 data_mod = read.csv(file = here("data", "data_mod_no_close_player.csv")) %>%
   mutate(across(where(is.character), as.factor)) #for catboost
   
@@ -37,10 +37,10 @@ data_mod = data_mod %>% left_join(close_features, by = c("game_player_play_id", 
 #' outputs 6 saved cv rmse offense and defense for dir, s, a respectively
 #' 
 #' could do this in parallel
-cv_rmse = function(features = "all", exclude_features = FALSE, iterations = 100, player_side = "both", response = "all", prop_cutoff = 0.4, post_throw_only = FALSE) {
+cv_rmse = function(features = "all", exclude_features = FALSE, iterations = 100, side = "both", response = "all", prop_cutoff = 0.4, post_throw_only = FALSE) {
   
-  unnnecessary_features = c("game_player_play_id", "game_play_id", "player_role", "throw", "num_frames_output",
-                            "frame_id", "x", "y", "ball_land_x", "ball_land_y", "player_name")
+  unnnecessary_features = c("game_player_play_id", "game_play_id", "player_role", "num_frames_output", "player_birth_date", 
+                            "x", "y", "ball_land_x", "ball_land_y", "player_name", "est_dir", "play_direction")
   data_mod = data_mod %>%
     filter((throw == "post" | throw == "pre" & lead(throw) == "post") | prop_play_complete >= prop_cutoff) #filter by prop_play_complete
   
@@ -48,18 +48,21 @@ cv_rmse = function(features = "all", exclude_features = FALSE, iterations = 100,
     data_mod = data_mod %>% filter(throw == "post")
   }
   if(features != "all") {#filer to only include features in features list
-    data_mod = data_mod %>% select(all_of(features))
+    data_mod = data_mod %>% select(any_of(features))
   }
   if(is.character(exclude_features)) {#exclude identified features
-    data_mod = data_mod %>% select(-all_of(exclude_features))
+    data_mod = data_mod %>% select(-any_of(exclude_features))
   }
 
   #no need to split into training/test - catboost will do that
   cat_df = data_mod %>% 
-    filter(abs(fut_s_diff) <= 1, #filter out the crazy speeds/accs for training
-           abs(fut_a_diff) <= 5) %>%
+    filter(est_speed <= 11, #filter out the crazy speeds/accs
+           abs(est_acc) <= 15,
+           abs(fut_s_diff) <= 1.5,
+           abs(fut_a_diff) <= 6) %>%
     filter(!is.na(fut_dir_diff) & !is.na(fut_s) & !is.na(fut_a_diff)) %>% #remove NA responses
-    select(-all_of(unnnecessary_features))
+    filter(game_player_play_id != 812) %>% #remove weird play
+    select(-any_of(unnnecessary_features))
   
   cat_df_o = cat_df %>% filter(player_side == "Offense") %>% select(-c(player_side, starts_with("fut_")))
   cat_df_d = cat_df %>% filter(player_side == "Defense") %>% select(-c(player_side, starts_with("fut_")))
@@ -79,43 +82,43 @@ cv_rmse = function(features = "all", exclude_features = FALSE, iterations = 100,
   results_list = list()
   
   #cv models
-  if(player_side %in% c("both", "offense")) {
+  if(side %in% c("both", "offense")) {
     if(response %in% c("all", "dir")) {
       dir_o_cv = catboost.cv(dir_pool_o, fold_count = 5, type = "Classical", partition_random_seed = 1999,
-                             params = list(iterations = iterations, metric_period = 50, od_type = "Iter", od_wait = 25))
+                             params = list(iterations = iterations, metric_period = 50))
       dir_o_cv = data.frame(response = "dir", side = "offense") %>% cbind(dir_o_cv[nrow(dir_o_cv),])
       results_list = append(results_list, list(dir_o_cv))
     }
     if(response %in% c("all", "s")) {
       speed_o_cv = catboost.cv(s_pool_o, fold_count = 5, type = "Classical", partition_random_seed = 1999,
-                               params = list(iterations = iterations, metric_period = 50, od_type = "Iter", od_wait = 25))
+                               params = list(iterations = iterations, metric_period = 50, od_type = "IncToDec", od_wait = 25))
       speed_o_cv = data.frame(response = "speed", side = "offense") %>% cbind(speed_o_cv[nrow(speed_o_cv),])
       results_list = append(results_list, list(speed_o_cv))
     }
     if(response %in% c("all", "a")) {
       acc_o_cv = catboost.cv(a_pool_o, fold_count = 5, type = "Classical", partition_random_seed = 1999,
-                             params = list(iterations = iterations, metric_period = 50, od_type = "Iter", od_wait = 25))
+                             params = list(iterations = iterations, metric_period = 50, od_type = "IncToDec", od_wait = 25))
       acc_o_cv = data.frame(response = "acc", side = "offense") %>% cbind(acc_o_cv[nrow(acc_o_cv),])
       results_list = append(results_list, list(acc_o_cv))
     }
   }
   
-  if(player_side %in% c("both", "defense")) {
+  if(side %in% c("both", "defense")) {
     if(response %in% c("all", "dir")) {
       dir_d_cv = catboost.cv(dir_pool_d, fold_count = 5, type = "Classical", partition_random_seed = 1999,
-                             params = list(iterations = iterations, metric_period = 50, od_type = "Iter", od_wait = 25))
+                             params = list(iterations = iterations, metric_period = 50, od_type = "IncToDec", od_wait = 25))
       dir_d_cv = data.frame(response = "dir", side = "defense") %>% cbind(dir_d_cv[nrow(dir_d_cv),])
       results_list = append(results_list, list(dir_d_cv))
     }
     if(response %in% c("all", "s")) {
       speed_d_cv = catboost.cv(s_pool_d, fold_count = 5, type = "Classical", partition_random_seed = 1999,
-                               params = list(iterations = iterations, metric_period = 50, od_type = "Iter", od_wait = 25))
+                               params = list(iterations = iterations, metric_period = 50, od_type = "IncToDec", od_wait = 25))
       speed_d_cv = data.frame(response = "speed", side = "defense") %>% cbind(speed_d_cv[nrow(speed_d_cv),])
       results_list = append(results_list, list(speed_d_cv))
     }
     if(response %in% c("all", "a")) {
       acc_d_cv = catboost.cv(a_pool_d, fold_count = 5, type = "Classical", partition_random_seed = 1999,
-                             params = list(iterations = iterations, metric_period = 50, od_type = "Iter", od_wait = 25))
+                             params = list(iterations = iterations, metric_period = 50, od_type = "IncToDec", od_wait = 25))
       acc_d_cv = data.frame(response = "acc", side = "defense") %>% cbind(acc_d_cv[nrow(acc_d_cv),])
       results_list = append(results_list, list(acc_d_cv))
     }
@@ -126,93 +129,155 @@ cv_rmse = function(features = "all", exclude_features = FALSE, iterations = 100,
 #' going through each model to remove unnecessary features
 #' removing useless features can improve test rmse and the sd down
 #' just use post throw only
+#' 
+#' 
+#' 
+#' also tune each to the best number of iterations..
+#' but is this different since were doing not entirely on post throw?
 
 ######### dir_o ######### 
-all_features = cv_rmse(player_side = "offense", response = "dir", iterations = 100,  post_throw_only = TRUE)
-no_useless_features = cv_rmse(player_side = "offense", response = "dir", iterations = 100, post_throw_only = TRUE,
-                              exclude_features = c("throw", "play_direction", "player_birth_date", "num_frames_output",
-                                                   "closest_teammate_dist", "closest_teammate_dir_diff"))
-all_features
-no_useless_features #since this is the same as all_features we can get rid of them
-#' exclude features:
-#'  c("throw", "play_direction", "player_birth_date", "num_frames_output", "closest_teammate_dist", "closest_teammate_dir_diff"))
+curr_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "player_position") #features currently being excluded in best cv
+
+before = cv_rmse(side = "offense", response = "dir", iterations = 100, exclude_features = curr_exclude_features)
+no_closest = cv_rmse(side = "offense", response = "dir", iterations = 100, exclude_features = c(curr_exclude_features, "closest_opponent_dist", "closest_opponent_dir_diff"))
+no_ball_dir_diff = cv_rmse(side = "offense", response = "dir", iterations = 100, exclude_features = c(curr_exclude_features, "ball_land_dir_diff"))
+no_prev_dir_diff = cv_rmse(side = "offense", response = "dir", iterations = 100, exclude_features = c(curr_exclude_features, "prev_dir_diff"))
+before #4.134
+no_closest #4.133
+no_ball_dir_diff #4.162
+no_prev_dir_diff #5.555
+
+
+#tuning iterations
+it_300 = cv_rmse(side = "offense", response = "dir", iterations = 300, exclude_features = curr_exclude_features)
+it_350 = cv_rmse(side = "offense", response = "dir", iterations = 350, exclude_features = curr_exclude_features)
+it_400 = cv_rmse(side = "offense", response = "dir", iterations = 400, exclude_features = curr_exclude_features)
+it_450 = cv_rmse(side = "offense", response = "dir", iterations = 450, exclude_features = curr_exclude_features)
+it_500 = cv_rmse(side = "offense", response = "dir", iterations = 500, exclude_features = curr_exclude_features)
+it_1000 = cv_rmse(side = "offense", response = "dir", iterations = 1000, exclude_features = curr_exclude_features)
+
+it_300
+it_350
+it_400
+it_450
+it_500
+it_1000
+#400 seems best
 
 
 ######### dir_d ######### 
-all_features = cv_rmse(player_side = "defense", response = "dir", iterations = 100,  post_throw_only = TRUE)
-no_useless_features = cv_rmse(player_side = "defense", response = "dir", iterations = 100, post_throw_only = TRUE,
-                              exclude_features = c("throw", "player_birth_date", "num_frames_output", "player_position", "play_direction"))
-all_features
-no_useless_features #since this is the same as all_features we can get rid of them
-#' exclude features:
-#'  c("throw", "player_birth_date", "num_frames_output", "player_position", "play_direction")
+curr_exclude_features = c("player_weight", "player_position") #features currently being excluded in best cv
+
+before = cv_rmse(side = "defense", response = "dir", iterations = 100, exclude_features = curr_exclude_features)
+no_closest = cv_rmse(side = "defense", response = "dir", iterations = 100, exclude_features = c(curr_exclude_features, "closest_teammate_dist", "closest_teammate_dir_diff", "closest_opponent_dist", "closest_opponent_dir_diff"))
+before #5.118
+no_closest #5.124
+
+#tuning iterations
+it_500 = cv_rmse(side = "defense", response = "dir", iterations = 500, exclude_features = curr_exclude_features)
+it_1000 = cv_rmse(side = "defense", response = "dir", iterations = 1000, exclude_features = curr_exclude_features)
+it_1500 = cv_rmse(side = "defense", response = "dir", iterations = 1500, exclude_features = curr_exclude_features)
+
+it_500
+it_1000
+it_1500
+#1300 seems best
+
 
 
 ######### speed_o ######### 
-all_features = cv_rmse(player_side = "offense", response = "s", iterations = 100,  post_throw_only = TRUE)
-no_useless_features = cv_rmse(player_side = "offense", response = "s", iterations = 100, post_throw_only = TRUE,
-                              exclude_features = c("throw", "num_frames_output", "play_direction", "player_birth_date", "player_position",
-                              "closest_teammate_dist", "closest_teammate_dir_diff"))
-all_features
-no_useless_features
-#' exclude features:
-#'  c("throw", "num_frames_output", "play_direction", "player_birth_date", "player_position", "closest_teammate_dist", "closest_teammate_dir_diff"))
+curr_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "player_height", "player_weight", "player_position", "throw") #features currently being excluded in best cv
+
+before = cv_rmse(side = "offense", response = "s", iterations = 100, exclude_features = curr_exclude_features)
+no_closest = cv_rmse(side = "offense", response = "s", iterations = 100, exclude_features = c(curr_exclude_features, "closest_opponent_dist", "closest_opponent_dir_diff"))
+before #0.1148
+no_closest #0.1148
+
+
+#tuning iterations
+it_500 = cv_rmse(side = "offense", response = "s", iterations = 500, exclude_features = curr_exclude_features)
+it_1000 = cv_rmse(side = "offense", response = "s", iterations = 1000, exclude_features = curr_exclude_features)
+it_1500 = cv_rmse(side = "offense", response = "s", iterations = 1500, exclude_features = curr_exclude_features)
+it_2000 = cv_rmse(side = "offense", response = "s", iterations = 2000, exclude_features = curr_exclude_features)
+it_2000 = cv_rmse(side = "offense", response = "s", iterations = 3000, exclude_features = curr_exclude_features)
+
+it_500
+it_1000
+it_1500
+it_2000
+it_3000 
+# 2500 seems best
+
 
 
 ######### speed_d ######### 
-all_features = cv_rmse(player_side = "defense", response = "s", iterations = 100,  post_throw_only = TRUE)
-no_useless_features = cv_rmse(player_side = "defense", response = "s", iterations = 100, post_throw_only = TRUE,
-                              exclude_features = c("throw", "num_frames_output", "player_birth_date", "player_position"))
-all_features
-no_useless_features
-#' exclude features:
-#'  c("throw", "num_frames_output", "player_birth_date", "player_position"))
+curr_exclude_features = c("player_height", "player_weight", "player_position", "est_dir", "throw", "time_elapsed") #features currently being excluded in best cv
+
+before = cv_rmse(side = "defense", response = "s", iterations = 100, exclude_features = curr_exclude_features)
+no_closest = cv_rmse(side = "defense", response = "s", iterations = 100, exclude_features = c(curr_exclude_features, "closest_teammate_dist", "closest_teammate_dir_diff", "closest_opponent_dist", "closest_opponent_dir_diff"))
+before #0.1170
+no_closest #0.1172
+
+#tuning iterations
+it_500 = cv_rmse(side = "defense", response = "s", iterations = 500, exclude_features = curr_exclude_features)
+it_1000 = cv_rmse(side = "defense", response = "s", iterations = 1000, exclude_features = curr_exclude_features)
+it_1500 = cv_rmse(side = "defense", response = "s", iterations = 1500, exclude_features = curr_exclude_features)
+it_2000 = cv_rmse(side = "defense", response = "s", iterations = 2000, exclude_features = curr_exclude_features)
+it_3000 = cv_rmse(side = "defense", response = "s", iterations = 3000, exclude_features = curr_exclude_features)
+
+it_500
+it_1000
+it_1500
+it_2000
+it_3000 
+# 3000 seems best
 
 
 ######### acc_o ######### 
-all_features = cv_rmse(player_side = "offense", response = "a", iterations = 100,  post_throw_only = TRUE)
-no_useless_features = cv_rmse(player_side = "offense", response = "a", iterations = 100, post_throw_only = TRUE,
-                              exclude_features = c("throw", "num_frames_output", "closest_teammate_dist", "closest_teammate_dir_diff"))
-all_features
-no_useless_features
-#' exclude features:
-#'  c("throw", "num_frames_output", "closest_teammate_dist", "closest_teammate_dir_diff")
+curr_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "est_dir") #features currently being excluded in best cv
+curr_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "est_dir", "player_position", "player_role") #use just for tuning iterations
+
+before = cv_rmse(side = "offense", response = "a", iterations = 100, exclude_features = curr_exclude_features)
+no_closest = cv_rmse(side = "offense", response = "a", iterations = 100, exclude_features = c(curr_exclude_features, "closest_teammate_dist", "closest_teammate_dir_diff", "closest_opponent_dist", "closest_opponent_dir_diff"))
+before #1.2559
+no_closest #1.2560
+
+#tuning iterations
+it_2000 = cv_rmse(side = "offense", response = "a", iterations = 2000, exclude_features = curr_exclude_features)
+it_3000 = cv_rmse(side = "offense", response = "a", iterations = 3000, exclude_features = curr_exclude_features)
+it_5000 = cv_rmse(side = "offense", response = "a", iterations = 5000, exclude_features = curr_exclude_features)
+it_7500 = cv_rmse(side = "offense", response = "a", iterations = 7500, exclude_features = curr_exclude_features)
+
+it_2000
+it_3000
+it_5000
+it_7500
+
+#7000 seems best
+
 
 
 ######### acc_d ######### 
-all_features = cv_rmse(player_side = "defense", response = "a", iterations = 100,  post_throw_only = TRUE)
-no_useless_features = cv_rmse(player_side = "defense", response = "a", iterations = 100, post_throw_only = TRUE,
-                              exclude_features = c("throw", "num_frames_output"))
-all_features
-no_useless_features
-#' exclude features:
-#'  c("throw", "num_frames_output")
+curr_exclude_features = c("player_position") #features currently being excluded in best cv
+
+before = cv_rmse(side = "defense", response = "a", iterations = 100, exclude_features = FALSE)
+no_closest = cv_rmse(side = "defense", response = "a", iterations = 100, exclude_features = c(curr_exclude_features, "closest_teammate_dist", "closest_teammate_dir_diff", "closest_opponent_dist", "closest_opponent_dir_diff"))
+before #1.3256
+no_closest #1.3255
 
 
+#tuning iterations
+it_2000 = cv_rmse(side = "defense", response = "a", iterations = 2000, exclude_features = curr_exclude_features)
+it_3000 = cv_rmse(side = "defense", response = "a", iterations = 3000, exclude_features = curr_exclude_features)
+it_5000 = cv_rmse(side = "defense", response = "a", iterations = 5000, exclude_features = curr_exclude_features)
+it_7500 = cv_rmse(side = "defense", response = "a", iterations = 7500, exclude_features = curr_exclude_features)
 
+it_2000
+it_3000
+it_5000
+it_7500
 
-#I don't think we can tune prop_play_complete here since our validation set is only post throw
-#a better cv score here doesn't matter when its automatically evaluating on pre throw frames
-#just always set it to a constant and play with the features...
-
-# prop_complete_0 = cv_rmse(player_side = "both", response = "dir", iterations = 100, prop_cutoff = 0)
-# prop_complete_0_1 = cv_rmse(player_side = "both", response = "dir", iterations = 100, prop_cutoff = 0.1)
-# prop_complete_0_2 = cv_rmse(player_side = "both", response = "dir", iterations = 100, prop_cutoff = 0.2)
-# prop_complete_0_3 = cv_rmse(player_side = "both", response = "dir", iterations = 100, prop_cutoff = 0.3)
-# prop_complete_0_4 = cv_rmse(player_side = "both", response = "dir", iterations = 100, prop_cutoff = 0.4)
-# prop_complete_0_5 = cv_rmse(player_side = "both", response = "dir", iterations = 100, prop_cutoff = 0.5)
-# post_throw_only = cv_rmse(player_side = "both", response = "dir", iterations = 100, post_throw_only = TRUE)
-# 
-# prop_complete_0
-# prop_complete_0_1
-# prop_complete_0_2
-# prop_complete_0_3
-# prop_complete_0_4
-# prop_complete_0_5
-# post_throw_only
-
-#also remember that the best tuning parameters are going to be different for each model
-#defense has lower test rmse at 0.4 cutoff but offense is lowest at 0.3 cutoff...
+#like 10000 best
 
 
 #unfortunately we cant really get feature importance here either - if we want that, need to fit the models individually below - don't need test set
@@ -230,19 +295,22 @@ no_useless_features
 
 fit_quick_model = function(response, player_side, exclude_features = FALSE) {
 
-  unnnecessary_features = c("game_player_play_id", "game_play_id", "player_role",
-                            "frame_id", "x", "y", "ball_land_x", "ball_land_y", "player_name")
+  unnnecessary_features = c("game_player_play_id", "game_play_id", "player_role", "num_frames_output", "player_birth_date", 
+                            "x", "y", "ball_land_x", "ball_land_y", "player_name", "est_dir", "play_direction")
   
   #no need to split into training/test - catboost will do that
   cat_df = data_mod %>% 
-    filter(throw == "post") %>%
-    filter(abs(fut_s_diff) <= 1, #filter out the crazy speeds/accs for training
+    filter(est_speed <= 11, #filter out the crazy speeds/accs
+           abs(est_acc) <= 15,
+           abs(fut_s_diff) <= 1.5,
            abs(fut_a_diff) <= 6) %>%
+    filter((throw == "post" | throw == "pre" & lead(throw) == "post") | prop_play_complete >= 0.4) %>% #filter prop_play_complete >0.4
     filter(!is.na(fut_dir_diff) & !is.na(fut_s) & !is.na(fut_a_diff)) %>% #remove NA responses
+    filter(game_player_play_id != 812) %>% #remove weird play
     select(-all_of(unnnecessary_features))
   
   if(is.character(exclude_features)) {#exclude identified features
-    cat_df = cat_df %>% select(-all_of(exclude_features))
+    cat_df = cat_df %>% select(-any_of(exclude_features))
   }
   
   if(player_side == "offense") {
@@ -282,12 +350,12 @@ fit_quick_model = function(response, player_side, exclude_features = FALSE) {
 }
 
 #dir_o
-dir_cat_o = fit_quick_model("dir", "offense", exclude_features = c("throw", "play_direction", "player_birth_date", "num_frames_output", "closest_teammate_dist", "closest_teammate_dir_diff"))
-catboost.get_feature_importance(dir_cat_o) %>% format(scientific = FALSE) #feature importance
+dir_cat_o = fit_quick_model("dir", "offense", exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff"))
+catboost.get_feature_importance(dir_cat_o) #feature importance
 
 #dir_d
-dir_cat_d = fit_quick_model("dir", "defense", exclude_features = c("throw", "player_birth_date", "num_frames_output", "player_position", "play_direction"))
-catboost.get_feature_importance(dir_cat_d) %>% format(scientific = FALSE) #feature importance
+dir_cat_d = fit_quick_model("dir", "defense", exclude_features = c("player_position"))
+catboost.get_feature_importance(dir_cat_d) #feature importance
 
 #speed_o
 speed_cat_o = fit_quick_model("speed", "offense", exclude_features = c("throw", "num_frames_output", "play_direction", "player_birth_date", "closest_teammate_dist", "closest_teammate_dir_diff", "player_height", "player_position"))

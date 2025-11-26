@@ -23,7 +23,8 @@ data_mod = read.csv(file = here("data", "data_mod_no_close_player.csv")) %>%
   mutate(across(where(is.character), as.factor)) #for catboost
 
 #join closest player features
-close_features = read.csv(here("data", "closest_dir_dist_features.csv"))
+close_features = read.csv(here("data", "closest_dir_dist_features.csv")) %>%
+  select(game_player_play_id, frame_id, starts_with("closest_"))
 data_mod = data_mod %>% left_join(close_features, by = c("game_player_play_id", "frame_id"))
 
 ############################################### Start CV ###############################################
@@ -372,7 +373,7 @@ cv_predict = function(df, cv_split, pred_subset = FALSE, model_path = "experimen
 #run CV
 #make sure data_mod and cv_split are the same as cv_train()
 start = Sys.time()
-results = cv_predict(data_mod, split, model_path = "experimentation_cv", pred_subset = 100, use_closest_features = FALSE) 
+results = cv_predict(data_mod, split, model_path = "exp_final_models", pred_subset = 100, use_closest_features = TRUE) 
 end = Sys.time()
 end - start
 plan(sequential) #quit parallel workers
@@ -644,12 +645,12 @@ train_o_labels = cat_train_df %>% filter(player_side == "Offense") %>% select(c(
 train_d_labels = cat_train_df %>% filter(player_side == "Defense") %>% select(c(starts_with("fut_")))
 
 #exclude certain features for each model
-dir_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff")
-dir_d_exclude_features = c("player_weight")
+dir_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "player_postion")
+dir_d_exclude_features = c("player_weight", "player_position")
 speed_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "player_height", "player_weight", "player_position", "throw")
 speed_d_exclude_features = c("player_height", "player_weight", "player_position", "est_dir", "throw", "time_elapsed")
-acc_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "est_dir")
-acc_d_exclude_features = c()
+acc_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "est_dir", "player_position")
+acc_d_exclude_features = c("player_position")
 
 #pool train sets
 cat_train_dir_o = catboost.load_pool(train_o %>% select(-any_of(dir_o_exclude_features)), label = train_o_labels$fut_dir_diff)
@@ -669,19 +670,19 @@ cat_train_acc_d = catboost.load_pool(train_d %>% select(-any_of(acc_d_exclude_fe
 # catboost.load_model(model_path = here("models", "best_cv", "fold_5", "defense", "acc.cbm"))
 
 #fit
-dir_cat_o = catboost.train(learn_pool = cat_train_dir_o, params = list(iterations = 200, metric_period = 50)) #200 
+dir_cat_o = catboost.train(learn_pool = cat_train_dir_o, params = list(iterations = 400, metric_period = 50)) #200 
 dir_cat_o$feature_importances
-dir_cat_d = catboost.train(learn_pool = cat_train_dir_d, params = list(iterations = 350, metric_period = 50)) #350 
+dir_cat_d = catboost.train(learn_pool = cat_train_dir_d, params = list(iterations = 1300, metric_period = 50)) #350 
 dir_cat_d$feature_importances
 
-speed_cat_o = catboost.train(learn_pool = cat_train_speed_o, params = list(iterations = 400, metric_period = 50)) #400
+speed_cat_o = catboost.train(learn_pool = cat_train_speed_o, params = list(iterations = 2500, metric_period = 50)) #400
 speed_cat_o$feature_importances
-speed_cat_d = catboost.train(learn_pool = cat_train_speed_d, params = list(iterations = 600, metric_period = 50)) #600
+speed_cat_d = catboost.train(learn_pool = cat_train_speed_d, params = list(iterations = 3000, metric_period = 50)) #600
 speed_cat_d$feature_importances
 
-acc_cat_o = catboost.train(learn_pool = cat_train_acc_o, params = list(iterations = 950, metric_period = 50)) #950
+acc_cat_o = catboost.train(learn_pool = cat_train_acc_o, params = list(iterations = 7000, metric_period = 50)) #950
 acc_cat_o$feature_importances
-acc_cat_d = catboost.train(learn_pool = cat_train_acc_d, params = list(iterations = 1200, metric_period = 50)) #1200
+acc_cat_d = catboost.train(learn_pool = cat_train_acc_d, params = list(iterations = 9000, metric_period = 50)) #1200
 acc_cat_d$feature_importances
 
 #save models
@@ -705,5 +706,10 @@ write.table(rownames(acc_cat_d$feature_importances), file  = here("models", "exp
 #I think finding the optimal prop cutoff point for each model will be important
 #also add more features
 #also look at others old catboost posts on kaggle
+
+
+
+##############FINISH TUNING ITERATIONS FOR ACC MODELS
+
 
 
