@@ -253,8 +253,7 @@ end = Sys.time()
 end-start
 plan(sequential) #quit parallel workers
 
-
-#write.csv(close_player_features, file = here("data", "closest_dir_dist_features.csv"), row.names = FALSE)
+write.csv(close_player_features, file = here("data", "closest_dir_dist_features.csv"), row.names = FALSE)
 
 
 #join the closest features to train_derived
@@ -279,6 +278,10 @@ dim(train_derived)
 ############################################### Continue EDA ############################################### 
 
 #train = read.csv(file = here("data", "train_clean.csv"), row.names = FALSE)
+
+
+
+
 
 #ball_land_dir_diff vs fut_dir_diff
 ball_land_dir_diff_v_fut_dir_diff = ggplot(data = train %>% filter(throw == "post"), mapping = aes(x = ball_land_dir_diff, y = fut_dir_diff)) + 
@@ -385,6 +388,32 @@ train_derived %>%
 
 #also splitting this up by offense and defense makes sense - they all have different relationships, since they have different goals...
 
+
+
+#closest_features 
+
+data_mod %>% filter(player_side == "Offense") %>% ggplot(mapping = aes(x = closest_opponent_dir_diff, y = fut_dir_diff)) +
+  geom_scattermore(alpha = 0.05) +
+  ylim(c(-30, 30))
+
+data_mod %>% filter(player_side == "Defense") %>% ggplot(mapping = aes(x = closest_teammate_dir_diff, y = fut_dir_diff)) +
+  geom_scattermore(alpha = 0.05) +
+  ylim(c(-30, 30))
+
+data_mod %>% filter(player_side == "Defense") %>% ggplot(mapping = aes(x = closest_opponent_dir_diff, y = fut_dir_diff)) +
+  geom_scattermore(alpha = 0.05) +
+  ylim(c(-30, 30))
+
+
+
+data_mod %>% filter(player_side == "Offense") %>% ggplot(mapping = aes(x = closest_opponent_dist, y = fut_s)) +
+  geom_scattermore(alpha = 0.1) + xlim(c(0, 20))
+
+data_mod %>% filter(player_side == "Defense") %>% ggplot(mapping = aes(x = closest_opponent_dist, y = fut_s)) +
+  geom_scattermore(alpha = 0.05)
+
+data_mod %>% filter(player_side == "Defense") %>% ggplot(mapping = aes(x = closest_opponent_dist, y = fut_s)) +
+  geom_scattermore(alpha = 0.05)  + xlim(c(0, 20))
 
 
 

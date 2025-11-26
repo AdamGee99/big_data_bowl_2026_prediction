@@ -118,7 +118,11 @@ get_closest_player_min_dist_dir = function(df) {
 
 
 
-##### CAN ALSO KEEP OTHER PLAYERS DIST/DIRS TOO, the calculations wouldnt be slower since were computing all the distances, just require more memory
+##### CAN ALSO KEEP OTHER PLAYERS DIST/DIRS TOO, the calculations wouldnt be slower since were computing all the distances, 
+#would the extra memory slow it down though?
+
+
+#or maybe make another feature - closest_player pre throw... that should be quick
 
 
 
