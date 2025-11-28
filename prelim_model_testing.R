@@ -142,10 +142,12 @@ before = cv_rmse(side = "offense", response = "dir", iterations = 100, exclude_f
 no_closest = cv_rmse(side = "offense", response = "dir", iterations = 100, exclude_features = c(curr_exclude_features, "closest_opponent_dist", "closest_opponent_dir_diff"))
 no_ball_dir_diff = cv_rmse(side = "offense", response = "dir", iterations = 100, exclude_features = c(curr_exclude_features, "ball_land_dir_diff"))
 no_prev_dir_diff = cv_rmse(side = "offense", response = "dir", iterations = 100, exclude_features = c(curr_exclude_features, "prev_dir_diff"))
+no_rel_ball = cv_rmse(side = "offense", response = "dir", iterations = 100, exclude_features = c(curr_exclude_features, "rel_velo_to_ball_land", "rel_acc_to_ball_land"))
 before #4.134
 no_closest #4.133
 no_ball_dir_diff #4.162
 no_prev_dir_diff #5.555
+no_rel_ball #
 
 
 #tuning iterations
@@ -294,7 +296,7 @@ it_7500
 
 
 
-fit_quick_model = function(response, player_side, exclude_features = FALSE) {
+fit_quick_model = function(response, player_side, exclude_features = FALSE, iterations = 100) {
 
   unnnecessary_features = c("game_player_play_id", "game_play_id", "player_role", "num_frames_output", "player_birth_date", 
                             "x", "y", "ball_land_x", "ball_land_y", "player_name", "est_dir", "play_direction")
@@ -346,7 +348,7 @@ fit_quick_model = function(response, player_side, exclude_features = FALSE) {
     }
   }
   #fit
-  catboost.train(learn_pool = pool, params = list(iterations = 100, metric_period = 10, 
+  catboost.train(learn_pool = pool, params = list(iterations = iterations, metric_period = 10, 
                                                   od_type = "Iter", od_wait = 50)) 
 }
 
@@ -359,7 +361,7 @@ acc_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff",
 acc_d_exclude_features = c("player_position")
 
 #dir_o
-dir_cat_o = fit_quick_model("dir", "offense", exclude_features = dir_o_exclude_features)
+dir_cat_o = fit_quick_model("dir", "offense", exclude_features = dir_o_exclude_features, iterations = 500)
 catboost.get_feature_importance(dir_cat_o) #feature importance
 
 #dir_d

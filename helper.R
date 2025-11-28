@@ -144,9 +144,16 @@ est_kinematics = function(df) {
     mutate(est_speed = get_dist(x_diff = x - lag(x), y_diff = y - lag(y))/0.1, #speed over previous -> current frame
            est_acc = (est_speed - lag(est_speed))/0.1, #acc over previous -> current frame (has direction)
            est_dir = get_dir(x_diff = x - lag(x), y_diff = y - lag(y))) %>%
-    mutate(est_speed = ifelse(throw == "post", est_speed, s), #use true recorded values pre throw if possible
+    #use true recorded values pre throw if possible
+    mutate(est_speed = ifelse(throw == "post", est_speed, s), 
            est_dir = ifelse(throw == "post", est_dir, dir),
-           max_frame_id = max(frame_id)) %>% #the maximum frame id for this player on this play
+           max_frame_id = max(frame_id),
+           time_until_play_complete = (max_frame_id - frame_id)*0.1) %>% #time until play complete in seconds) %>% #the maximum frame id for this player on this play
+    #velo/acc to ball stuff
+    mutate(velo_x = (x - lag(x))/0.1,
+           velo_y = (y - lag(y))/0.1,
+           acc_x = (velo_x - lag(velo_x))/0.1,
+           acc_y = (velo_y - lag(velo_y))/0.1)
     ungroup() %>%
     group_by(game_player_play_id, throw) %>% #add time elapsed post throw
     mutate(time_elapsed_post_throw = ifelse(throw == "pre", NA, row_number()*0.1)) %>%
@@ -167,8 +174,7 @@ change_in_kinematics = function(df) {
            prev_a_diff = est_acc - lag(est_acc), #diff in acc from previous -> current frame
            fut_dir_diff = min_pos_neg_dir(lead(est_dir) - est_dir), #diff in dir from current -> next frame
            fut_s_diff = lead(est_speed) - est_speed, #diff in speed from current -> next frame
-           fut_a_diff = lead(est_acc) - est_acc #diff in acc from current -> next frame
-           ) %>%
+           fut_a_diff = lead(est_acc) - est_acc) %>% #diff in acc from current -> next frame
     ungroup()
   
   change_kin_df
@@ -229,7 +235,6 @@ derived_features = function(df) {
            ball_land_dir_diff = min_pos_neg_dir(est_dir - curr_ball_land_dir), #difference in current direction of player and direction needed to go to to reach ball land (x,y)
            dist_ball_land = get_dist(x_diff = ball_land_x - x, y_diff = ball_land_y - y), #the distance where the player currently is to where the ball will land
            time_elapsed = frame_id*0.1, #time elapsed in seconds
-           time_until_play_complete = (max_frame_id - frame_id)*0.1, #time until play complete in seconds
            
            #distance to closest out of bounds point
            out_bounds_dist = case_when( 
@@ -245,18 +250,31 @@ derived_features = function(df) {
              out_bounds_dist == (53.3 - y) ~ 0,
              out_bounds_dist == (y - 0) ~ 180
            ),
-           out_bounds_dir_diff = min_pos_neg_dir(est_dir - out_bounds_dir),
-           #distance to closest player
-           
-           #direction to closest player
-           
-           ) %>%
+           out_bounds_dir_diff = min_pos_neg_dir(est_dir - out_bounds_dir)) %>%
+    #relative velo/acc to ball
+    group_by(game_player_play_id) %>%
+    mutate(rel_velo_to_ball_land = (dist_ball_land - lag(dist_ball_land))/0.1,
+           rel_acc_to_ball_land = (rel_velo_to_ball_land - lag(rel_velo_to_ball_land))/0.1) %>%
+    ungroup() %>%
     select(-c(out_bounds_dir, curr_ball_land_dir))
     
   derived_df
 }
 
 
+dist_ball_land_out = function(df) {
+  df_out = df %>%
+    #just do it once for each play
+    group_by(game_play_id) %>%
+    slice(1) %>%
+    mutate(ball_land_nearest_out_x = min(ball_land_x - 0, 120 - ball_land_x),
+           ball_land_nearest_out_y = min(ball_land_y - 0, 53.3 - ball_land_y),
+           ball_land_dist_out = min(ball_land_nearest_out_x, ball_land_nearest_out_y)) %>%
+    ungroup() %>%
+    select(game_play_id, ball_land_dist_out)
+  
+  df_out
+}
 
 
 

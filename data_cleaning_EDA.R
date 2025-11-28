@@ -194,25 +194,34 @@ train = train %>% filter(!(game_play_id %in% 812))
 #'  -distance to nearest out of bounds point
 #'  -direction to nearest out of bounds point
 #'  
+#'  -convert height to inches
+#'  
+#'  
 #'  -dir_diff/dist to nearest teammate
 #'  -dir_diff/dist to nearest opponent
 #'  
 #'  -time elapsed post throw (num_frames post throw/10)
 #'  -time until play complete ((max frame - current frame)/10)
 #'  
+#'  -whether ball_land_xy is close to boundary or not
+#'    -sometimes ball_land_xy is out of bounds and players give up trying to catch it
+#'    -ball_land_xy dist to out of bounds?
+#'  
 #'  
 #'  TO DO:
+#'  velocity - gett velo_x, velo_y then convert it to the direction the player is heading (vector of speed)
+#'  velocity to ball
+#'  acceleration to ball
+#'  
+#'  
 #'  -speed of nearest offensive player
 #'  -direction of nearest offensive player (the defense is trying to copy/predict this)
 #'  -direction to quarterback
 #'  
-#'  -time before throw
+#'  -velo_to ball
+#'  -acc_to_ball
 #'  
-#'  -convert height to inches
-#'  
-#'  
-#'  -whether ball_land_xy is close to boundary or not
-#'    -sometimes ball_land_xy is out of bounds and players give up trying to catch it
+
 #'  
 #'  -include acceleration vector and acceleration scalar (the scalar we can use recorded values)
 #'  
@@ -224,8 +233,6 @@ train = train %>% filter(!(game_play_id %in% 812))
 #'  
 #'  
 #'  -Voronoi features - this captures the space which players are controlling in the field 
-#'  
-#'  -second derivative of the player's curve over the past 5 frames for eg, the sharper the curve, the slower the speed/acc...
 
 
 #derive most features here
@@ -234,6 +241,10 @@ train_derived = train %>%
   change_in_kinematics() %>%
   derived_features()
 
+#dist ball land out
+dist_ball_land_out = dist_ball_land_out(train)
+
+train_derived = left_join(train_derived, dist_ball_land_out, by = "game_play_id")
 
 
 #get remaining closest player features
