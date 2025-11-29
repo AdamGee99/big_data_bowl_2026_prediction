@@ -149,11 +149,11 @@ est_kinematics = function(df) {
            est_dir = ifelse(throw == "post", est_dir, dir),
            max_frame_id = max(frame_id),
            time_until_play_complete = (max_frame_id - frame_id)*0.1) %>% #time until play complete in seconds) %>% #the maximum frame id for this player on this play
-    #velo/acc to ball stuff
-    mutate(velo_x = (x - lag(x))/0.1,
-           velo_y = (y - lag(y))/0.1,
-           acc_x = (velo_x - lag(velo_x))/0.1,
-           acc_y = (velo_y - lag(velo_y))/0.1)
+    # #velo/acc to ball stuff
+    # mutate(velo_x = (x - lag(x))/0.1,
+    #        velo_y = (y - lag(y))/0.1,
+    #        acc_x = (velo_x - lag(velo_x))/0.1,
+    #        acc_y = (velo_y - lag(velo_y))/0.1)
     ungroup() %>%
     group_by(game_player_play_id, throw) %>% #add time elapsed post throw
     mutate(time_elapsed_post_throw = ifelse(throw == "pre", NA, row_number()*0.1)) %>%
@@ -174,7 +174,10 @@ change_in_kinematics = function(df) {
            prev_a_diff = est_acc - lag(est_acc), #diff in acc from previous -> current frame
            fut_dir_diff = min_pos_neg_dir(lead(est_dir) - est_dir), #diff in dir from current -> next frame
            fut_s_diff = lead(est_speed) - est_speed, #diff in speed from current -> next frame
-           fut_a_diff = lead(est_acc) - est_acc) %>% #diff in acc from current -> next frame
+           fut_a_diff = lead(est_acc) - est_acc, #diff in acc from current -> next frame
+           #lagged speed, acc
+           log_est_speed = log(est_speed),
+           prev_log_s_diff = log_est_speed - lag(log_est_speed)) %>%
     ungroup()
   
   change_kin_df

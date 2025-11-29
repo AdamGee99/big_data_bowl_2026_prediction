@@ -221,6 +221,10 @@ train = train %>% filter(!(game_play_id %in% 812))
 #'  -velo_to ball
 #'  -acc_to_ball
 #'  
+#'  
+#'  prev_speed
+#'  prev_acc
+#'  
 
 #'  
 #'  -include acceleration vector and acceleration scalar (the scalar we can use recorded values)
