@@ -193,7 +193,7 @@ plan(sequential) #quit parallel workers
 #model_path is which folder for which models you want to use
 cv_predict = function(df, cv_split, pred_subset = FALSE, model_path = "experimentation_cv", use_closest_features = TRUE, cores = 15) {
   
-  #set up parallel and progress
+  # #set up parallel and progress
   handlers(global = TRUE)
   handlers("progress")
   
@@ -229,11 +229,18 @@ cv_predict = function(df, cv_split, pred_subset = FALSE, model_path = "experimen
       test_plays = test_plays[1:pred_subset]
     }
     
+    #select the final frame before throw
     data_mod_test = df %>%
-      filter(game_play_id %in% test_plays, throw == "pre") %>%
-      group_by(game_player_play_id) %>% #select the final frame before throw
-      slice_tail(n = 1) %>% 
-      ungroup()
+      filter(game_play_id %in% test_plays, 
+             throw == "pre" & lead(throw) == "post")
+        
+    
+    #for test_input
+    # data_mod_test = df %>%
+    #   filter(game_play_id %in% test_plays, throw == "pre") %>%
+    #   group_by(game_player_play_id) %>% #select the final frame before throw
+    #   slice_tail(n = 1) %>% 
+    #   ungroup()
     
 
     # #load models for this fold
@@ -332,44 +339,26 @@ cv_predict = function(df, cv_split, pred_subset = FALSE, model_path = "experimen
             select(-pred_dist_diff)
           
           #predict next dir, s, a
-          curr_frame_all_players = foreach(player = player_ids, .combine = rbind) %do% { #need to do this in a loop since catboost load pool thing
-            
-            #return row with predicted dir, s, a
-            curr_frame_player = curr_frame_all_players %>% 
-              filter(game_player_play_id == player) #predict on single player
-              
-            #load in models
-            if(unique(curr_frame_player$player_side) == "Offense") {
-              dir_cat = dir_cat_o
-              speed_cat = speed_cat_o
-              acc_cat = acc_cat_o
-              
-              #catboost pool
-              dir_pool = curr_frame_player %>% select(all_of(dir_o_features)) %>% catboost.load_pool()
-              speed_pool = curr_frame_player %>% select(all_of(speed_o_features)) %>% catboost.load_pool()
-              acc_pool = curr_frame_player %>% select(all_of(acc_o_features)) %>% catboost.load_pool()
-            } else {
-              dir_cat = dir_cat_d
-              speed_cat = speed_cat_d
-              acc_cat = acc_cat_d
-              
-              #catboost pool
-              dir_pool = curr_frame_player %>% select(all_of(dir_d_features)) %>% catboost.load_pool()
-              speed_pool = curr_frame_player %>% select(all_of(speed_d_features)) %>% catboost.load_pool()
-              acc_pool = curr_frame_player %>% select(all_of(acc_d_features)) %>% catboost.load_pool()
-            }
-            #predict
-            curr_frame_player = curr_frame_player %>%  
-              mutate(pred_dir = est_dir + catboost.predict(dir_cat, dir_pool),
-                     pred_s = catboost.predict(speed_cat, speed_pool), 
-                     pred_s = exp(pred_s), #exponentiate back to original scale
-                     pred_a = catboost.predict(acc_cat, acc_pool))
-            
-            #same colnames as previous iteration
-            if(output_frame_id > 1) {curr_frame_all_players = curr_frame_all_players %>% select(all_of(colnames(result)))} 
-            
-            curr_frame_player
-          }
+          all_model_features = curr_frame_all_players %>% 
+            select(all_of(unique(c(dir_o_features, dir_d_features, speed_o_features, speed_d_features, acc_o_features, acc_d_features))))
+          full_pool = catboost.load_pool(data = as.matrix(all_model_features)) #pool all potential features for every model
+          
+          #pred dir, s, a
+          pred_dir_off = catboost.predict(dir_cat_o, full_pool, thread_count = -1)
+          pred_dir_def = catboost.predict(dir_cat_d, full_pool, thread_count = -1)
+          pred_s_off = catboost.predict(speed_cat_o, full_pool, thread_count = -1)
+          pred_s_def = catboost.predict(speed_cat_d, full_pool, thread_count = -1)
+          pred_a_off = catboost.predict(acc_cat_o, full_pool, thread_count = -1)
+          pred_a_def = catboost.predict(acc_cat_d, full_pool, thread_count = -1)
+          
+          curr_frame_all_players = curr_frame_all_players %>%
+            mutate(pred_dir = est_dir + ifelse(player_side == "Offense", pred_dir_off[row_number()], pred_dir_def[row_number()]),
+                   pred_s = ifelse(player_side == "Offense", pred_s_off[row_number()], pred_s_def[row_number()]),
+                   pred_s = exp(pred_s),
+                   pred_a = ifelse(player_side == "Offense", pred_a_off[row_number()], pred_a_def[row_number()]))
+          
+          #same colnames as previous iteration
+          if(output_frame_id > 1) {curr_frame_all_players = curr_frame_all_players %>% select(all_of(colnames(result)))}
           
           ### return result ###
           result = curr_frame_all_players
@@ -383,7 +372,7 @@ cv_predict = function(df, cv_split, pred_subset = FALSE, model_path = "experimen
 #run CV
 #make sure data_mod and cv_split are the same as cv_train()
 start = Sys.time()
-results = cv_predict(data_mod, split, model_path = "best_cv", use_closest_features = TRUE, cores = 16) 
+results = cv_predict(data_mod, split, model_path = "final_models", pred_subset = 100,  use_closest_features = TRUE, cores = 16) 
 end = Sys.time()
 end - start
 plan(sequential) #quit parallel workers
@@ -415,10 +404,10 @@ results_comp %>%
 #final_models - 0.762 all 
 #kaggle_best - 0.781 all
 #exp_final_models - 0.727 all
+#final_models - 0.707 all
 
-
-#exp_final_models - pred_subset = 100, close_features = FALSE - 0.651
-#exp_final_models - pred_subset = 100, close_features = TRUE - 0.637
+#the actual rmse is worse than this since were using games we fit the model on in test for final_models
+#the cv ones represent the true rmse
 
 
 #' LOG OF TUNING:
