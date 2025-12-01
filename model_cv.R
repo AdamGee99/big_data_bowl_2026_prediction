@@ -171,10 +171,7 @@ end = Sys.time()
 end-start
 plan(sequential) #quit parallel workers
 
-#takes 15 min for 1000 iterations each model
-
-
-### what if we filter throw == "post" only for test set...
+#0.5625 test, 0.8 off, 0.65 def - 0.731
 
 
 ############################################### CV Predict ###############################################
@@ -217,15 +214,6 @@ cv_predict = function(cv_split, pred_subset = FALSE, model_path = "experimentati
   
   all_cat_features = unique(c(dir_o_features, dir_d_features, speed_o_features, speed_d_features, acc_o_features, acc_d_features))
   
-  if(!(endsWith(model_path, "cv"))) {#the models for kaggle, no cv folds
-    dir_cat_o = catboost.load_model(model_path = here("models", model_path, "offense", "dir.cbm"))
-    dir_cat_d = catboost.load_model(model_path = here("models", model_path, "defense", "dir.cbm"))
-    speed_cat_o = catboost.load_model(model_path = here("models", model_path, "offense", "speed.cbm"))
-    speed_cat_d = catboost.load_model(model_path = here("models", model_path, "defense", "speed.cbm"))
-    acc_cat_o = catboost.load_model(model_path = here("models", model_path, "offense", "acc.cbm"))
-    acc_cat_d = catboost.load_model(model_path = here("models", model_path, "defense", "acc.cbm"))
-  }
-  
   #setting up grid to parallelize over (fold, play)
   grid = do.call(rbind, lapply(1:num_folds, function(f) {
     plays = game_play_ids[cv_split == f]
@@ -233,21 +221,27 @@ cv_predict = function(cv_split, pred_subset = FALSE, model_path = "experimentati
     tibble(fold = f, play = plays)
   }))
   
+  #current play info - includes all players to predict on this play
+  data_mod_final_frame = readRDS(here("data", "data_mod_final_frame.RDS")) 
+  
   #parallelize here - over the plays
   with_progress({
     p = progressor(steps = nrow(grid)) #progress
     #parallelize over (fold, play)
     results_list = foreach(i = 1:nrow(grid), .packages = c("tidyverse", "catboost")) %dopar% {
-      stopifnot(exists("change_in_kinematics"))
-      stopifnot(exists("derived_features"))
-      stopifnot(exists("get_closest_player_min_dist_dir"))
       p(sprintf("Iteration %d", i)) #progress 
       
       fold = grid$fold[i]
       play = grid$play[i]
       
-      if(endsWith(model_path, "cv")) {#the models for kaggle, no cv folds
-        
+      if(!(endsWith(model_path, "cv"))) {#the models for kaggle, no cv folds
+        dir_cat_o = catboost.load_model(model_path = here("models", model_path, "offense", "dir.cbm"))
+        dir_cat_d = catboost.load_model(model_path = here("models", model_path, "defense", "dir.cbm"))
+        speed_cat_o = catboost.load_model(model_path = here("models", model_path, "offense", "speed.cbm"))
+        speed_cat_d = catboost.load_model(model_path = here("models", model_path, "defense", "speed.cbm"))
+        acc_cat_o = catboost.load_model(model_path = here("models", model_path, "offense", "acc.cbm"))
+        acc_cat_d = catboost.load_model(model_path = here("models", model_path, "defense", "acc.cbm"))
+      } else {
         #models for this fold - if this is slow its because models are being loaded every single play
         dir_cat_o = catboost.load_model(here("models", model_path, paste0("fold_", fold), "offense", "dir.cbm"))
         dir_cat_d = catboost.load_model(here("models", model_path, paste0("fold_", fold), "defense", "dir.cbm"))
@@ -256,10 +250,7 @@ cv_predict = function(cv_split, pred_subset = FALSE, model_path = "experimentati
         acc_cat_o = catboost.load_model(here("models", model_path, paste0("fold_", fold), "offense", "acc.cbm"))
         acc_cat_d = catboost.load_model(here("models", model_path, paste0("fold_", fold), "defense", "acc.cbm"))
       }
-      
-      #current play info - includes all players to predict on this play
-      data_mod_final_frame = readRDS(here("data", "data_mod_final_frame.RDS")) 
-      
+    
       curr_play_info = data_mod_final_frame %>% filter(game_play_id == play)
       last_frame_id = curr_play_info$frame_id %>% unique() #last frame id before throw
       num_frames_output = curr_play_info$num_frames_output %>% unique() #number of frames to predict
@@ -357,31 +348,33 @@ cv_predict = function(cv_split, pred_subset = FALSE, model_path = "experimentati
         result
       }
       bind_rows(frame_result_list)
-      #print(object.size(bind_rows(frame_result_list)), units = "Mb")
     }
   })
   bind_rows(results_list)  
 }
 
+#train models on cv folds
+start = Sys.time()
+cv_train_models(split, test_prop_cutoff = 0.4, off_train_prop_cutoff = 0.8, def_train_prop_cutoff = 0.65)
+end = Sys.time()
+end-start
+plan(sequential) #quit parallel workers
+
+#0.5625 test, 0.8 off, 0.65 def - 0.731 rmse (pred_subset = 100)
+#0.6000 test, 0.8 off, 0.65 def - 0.730 rmse (pred_subset = 100)
+
+
 #run CV
 #make sure data_mod and cv_split are the same as cv_train()
 plan(sequential) #quit parallel workers
 start = Sys.time()
-results = cv_predict(split, model_path = "experimentation_cv", pred_subset = 100, use_closest_features = TRUE, cores = 10) 
+results = cv_predict(split, model_path = "experimentation_cv", pred_subset = 100, use_closest_features = TRUE, cores = 12) 
 end = Sys.time()
 end - start
 plan(sequential) #quit parallel workers
 
 
-
 ############################################### RMSE Results ###############################################
-
-### to do:
-#' tune prop play complete for each model - can use only 50 pred_subset?
-#' tune other parameters for each model like tree depth, etc.
-#' figure out why acceleration is still squashed.. (maybe true values are weird?)
-#' experiment with other features
-
 
 #bind results into df
 results_comp = results %>%
@@ -393,8 +386,11 @@ results_comp %>%
   summarise(rmse = get_rmse(true_x = true_x, true_y = true_y,
                             pred_x = pred_x, pred_y = pred_y))
 
-### this is experimentation_cv but save it as best_cv for now...
-
+### to do:
+#' tune other parameters for each model like tree depth, etc.
+#' figure out why acceleration is still squashed.. (maybe true values are weird?)
+#' experiment with other features
+#' 
 
 #final_models - 0.762 all 
 #kaggle_best - 0.781 all
