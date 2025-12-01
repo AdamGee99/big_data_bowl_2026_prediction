@@ -66,7 +66,7 @@ saveRDS(data_mod_clean, file = here("data", "data_mod_clean.RDS"))
 #function to train the models on each training fold
 #saves models after which can be imported when predicting
 #df is data_mod
-cv_train_models = function(cv_split) {
+cv_train_models = function(cv_split, test_prop_cutoff = 1, off_train_prop_cutoff = 0.5625, def_train_prop_cutoff = 0.5625) {
   
   #might as well do it in parallel
   registerDoFuture()
@@ -93,31 +93,25 @@ cv_train_models = function(cv_split) {
     #exclude certain features for each model
     dir_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "player_position", "log_est_speed", "prev_log_s_diff", "prev_log_a_diff")
     dir_d_exclude_features = c("player_weight", "player_position", "log_est_speed", "prev_log_s_diff", "prev_log_a_diff")
-    speed_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "player_weight", "player_position", "throw", "est_speed", "est_acc", "prev_speed", "prev_acc")
-    speed_d_exclude_features = c("player_weight", "player_position", "throw", "est_speed", "est_acc", "prev_speed", "prev_acc")
+    speed_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "player_weight", "player_position", "throw", "est_speed", "prev_speed", "prev_acc")
+    speed_d_exclude_features = c("player_weight", "player_position", "throw", "est_speed", "prev_speed", "prev_acc") #replace log_est_acc with est_acc
     acc_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "player_position", "log_est_speed", "prev_log_s_diff", "prev_log_a_diff")
     acc_d_exclude_features = c("player_position", "log_est_speed", "prev_log_s_diff", "prev_log_a_diff")
-    
-    #prop cutoff for offense and defense
-    off_prop_cutoff = 0.5625 #0.8
-    def_prop_cutoff = 0.5625 #0.65
-    
-    test_cutoff = 0.5625 #prop cutoff for test sets, this is 5% quantile of when the throw starts
     
     cat_train_df = data_mod_train %>% select(-all_of(unnnecessary_features))
     cat_test_df = data_mod_test %>% select(-all_of(unnnecessary_features))
     
     #offense and defense training sets
-    train_o = cat_train_df %>% filter(player_side == "Offense", throw == "post" | prop_play_complete >= off_prop_cutoff) %>% select(-c(starts_with("fut_"), player_side))
-    train_d = cat_train_df %>% filter(player_side == "Defense", throw == "post" | prop_play_complete >= def_prop_cutoff) %>% select(-c(starts_with("fut_"), player_side))
-    train_o_labels = cat_train_df %>% filter(player_side == "Offense", throw == "post" | prop_play_complete >= off_prop_cutoff) %>% select(c(starts_with("fut_")))
-    train_d_labels = cat_train_df %>% filter(player_side == "Defense", throw == "post" | prop_play_complete >= def_prop_cutoff) %>% select(c(starts_with("fut_")))
+    train_o = cat_train_df %>% filter(player_side == "Offense", throw == "post" | prop_play_complete >= off_train_prop_cutoff) %>% select(-c(starts_with("fut_"), player_side))
+    train_d = cat_train_df %>% filter(player_side == "Defense", throw == "post" | prop_play_complete >= def_train_prop_cutoff) %>% select(-c(starts_with("fut_"), player_side))
+    train_o_labels = cat_train_df %>% filter(player_side == "Offense", throw == "post" | prop_play_complete >= off_train_prop_cutoff) %>% select(c(starts_with("fut_")))
+    train_d_labels = cat_train_df %>% filter(player_side == "Defense", throw == "post" | prop_play_complete >= def_train_prop_cutoff) %>% select(c(starts_with("fut_")))
     
     #offense and defense test sets
-    test_o = cat_test_df %>% filter(player_side == "Offense", throw == "post" | prop_play_complete >= test_cutoff) %>% select(-c(starts_with("fut_"), player_side))
-    test_d = cat_test_df %>% filter(player_side == "Offense", throw == "post" | prop_play_complete >= test_cutoff) %>% select(-c(starts_with("fut_"), player_side))
-    test_o_labels = cat_test_df %>% filter(player_side == "Offense", throw == "post" | prop_play_complete >= test_cutoff) %>% select(c(starts_with("fut_")))
-    test_d_labels = cat_test_df %>% filter(player_side == "Offense", throw == "post" | prop_play_complete >= test_cutoff) %>% select(c(starts_with("fut_")))
+    test_o = cat_test_df %>% filter(player_side == "Offense", throw == "post" | prop_play_complete >= test_prop_cutoff) %>% select(-c(starts_with("fut_"), player_side))
+    test_d = cat_test_df %>% filter(player_side == "Offense", throw == "post" | prop_play_complete >= test_prop_cutoff) %>% select(-c(starts_with("fut_"), player_side))
+    test_o_labels = cat_test_df %>% filter(player_side == "Offense", throw == "post" | prop_play_complete >= test_prop_cutoff) %>% select(c(starts_with("fut_")))
+    test_d_labels = cat_test_df %>% filter(player_side == "Offense", throw == "post" | prop_play_complete >= test_prop_cutoff) %>% select(c(starts_with("fut_")))
      
     #pool train sets
     cat_train_dir_o = catboost.load_pool(train_o %>% select(-any_of(dir_o_exclude_features)), label = train_o_labels$fut_dir_diff)
@@ -172,7 +166,7 @@ cv_train_models = function(cv_split) {
 
 #get trained models for each cv fold
 start = Sys.time()
-cv_train_models(split)
+cv_train_models(split, test_prop_cutoff = 0.5625, off_train_prop_cutoff = 0.8, def_train_prop_cutoff = 0.65)
 end = Sys.time()
 end-start
 plan(sequential) #quit parallel workers
@@ -196,7 +190,15 @@ saveRDS(data_mod_final_frame, file = here("data", "data_mod_final_frame.RDS"))
 #pred_subset is the number of rows to predict on in the test folds - make this small to run quicker
 #use_best_models is a logical indicating whether to use the current best cv models or not - default is TRUE, use as comparison 
 #model_path is which folder for which models you want to use
-cv_predict = function(cv_split, pred_subset = FALSE, model_path = "experimentation_cv", use_closest_features = TRUE, cores = 15) {
+
+
+#' flow of this:
+#'  -loop through all (fold, plays)
+#'    -loop through all the frames in a num_frames_output
+#'    -for each player: predict next x,y and derive new features
+#'      -loop through the players in the play post throw
+#'      -predict next dir, s, a
+cv_predict = function(cv_split, pred_subset = FALSE, model_path = "experimentation_cv", use_closest_features = TRUE, cores = 10) {
   
   # #set up parallel and progress
   handlers(global = TRUE)
@@ -224,156 +226,148 @@ cv_predict = function(cv_split, pred_subset = FALSE, model_path = "experimentati
     acc_cat_d = catboost.load_model(model_path = here("models", model_path, "defense", "acc.cbm"))
   }
   
+  #setting up grid to parallelize over (fold, play)
+  grid = do.call(rbind, lapply(1:num_folds, function(f) {
+    plays = game_play_ids[cv_split == f]
+    if (is.numeric(pred_subset)) plays = plays[1:pred_subset]
+    tibble(fold = f, play = plays)
+  }))
   
-  #loop through folds
-  fold_results_list = foreach(fold = 1:num_folds, .packages = c("tidyverse", "doParallel", "catboost")) %do% {
-    print(paste0("Starting fold ", fold, ". ", 100*((fold - 1)/num_folds), "% done")) #see progress
-    
-    #plays we need to predict on
-    test_plays = game_play_ids[cv_split == fold]
-    #predict on subset of test folds
-    if(is.numeric(pred_subset)) {
-      test_plays = test_plays[1:pred_subset]
-    }
-
-    # #load models for this fold
-    if(endsWith(model_path, "cv")) { #seperate model for each cv fold
-      dir_cat_o = catboost.load_model(model_path = here("models", model_path, paste0("fold_", fold), "offense", "dir.cbm"))
-      dir_cat_d = catboost.load_model(model_path = here("models", model_path, paste0("fold_", fold), "defense", "dir.cbm"))
-      speed_cat_o = catboost.load_model(model_path = here("models", model_path, paste0("fold_", fold), "offense", "speed.cbm"))
-      speed_cat_d = catboost.load_model(model_path = here("models", model_path, paste0("fold_", fold), "defense", "speed.cbm"))
-      acc_cat_o = catboost.load_model(model_path = here("models", model_path, paste0("fold_", fold), "offense", "acc.cbm"))
-      acc_cat_d = catboost.load_model(model_path = here("models", model_path, paste0("fold_", fold), "defense", "acc.cbm"))
-    }
-    
-    #' flow of this:
-    #'  -loop through all the plays
-    #'    -loop through all the frames in a num_frames_output
-    #'    -for each player: predict next x,y and derive new features
-    #'      -loop through the players in the play post throw
-    #'      -predict next dir, s, a
-  
-    #parallelize here - over the plays
-    with_progress({
-      p = progressor(steps = length(test_plays)) #progress
+  #parallelize here - over the plays
+  with_progress({
+    p = progressor(steps = nrow(grid)) #progress
+    #parallelize over (fold, play)
+    results_list = foreach(i = 1:nrow(grid), .packages = c("tidyverse", "catboost")) %dopar% {
+      stopifnot(exists("change_in_kinematics"))
+      stopifnot(exists("derived_features"))
+      stopifnot(exists("get_closest_player_min_dist_dir"))
+      p(sprintf("Iteration %d", i)) #progress 
       
-      results_list = foreach(play = test_plays, .packages = c("tidyverse", "doParallel", "catboost")) %dopar% {
-        p(sprintf("Iteration %d", play)) #progress 
+      fold = grid$fold[i]
+      play = grid$play[i]
+      
+      if(endsWith(model_path, "cv")) {#the models for kaggle, no cv folds
         
-        #current play info - includes all players to predict on this play
-        data_mod_final_frame = readRDS(here("data", "data_mod_final_frame.RDS")) 
+        #models for this fold - if this is slow its because models are being loaded every single play
+        dir_cat_o = catboost.load_model(here("models", model_path, paste0("fold_", fold), "offense", "dir.cbm"))
+        dir_cat_d = catboost.load_model(here("models", model_path, paste0("fold_", fold), "defense", "dir.cbm"))
+        speed_cat_o = catboost.load_model(here("models", model_path, paste0("fold_", fold), "offense", "speed.cbm"))
+        speed_cat_d = catboost.load_model(here("models", model_path, paste0("fold_", fold), "defense", "speed.cbm"))
+        acc_cat_o = catboost.load_model(here("models", model_path, paste0("fold_", fold), "offense", "acc.cbm"))
+        acc_cat_d = catboost.load_model(here("models", model_path, paste0("fold_", fold), "defense", "acc.cbm"))
+      }
+      
+      #current play info - includes all players to predict on this play
+      data_mod_final_frame = readRDS(here("data", "data_mod_final_frame.RDS")) 
+      
+      curr_play_info = data_mod_final_frame %>% filter(game_play_id == play)
+      last_frame_id = curr_play_info$frame_id %>% unique() #last frame id before throw
+      num_frames_output = curr_play_info$num_frames_output %>% unique() #number of frames to predict
+      player_ids = curr_play_info$game_player_play_id %>% unique() #player ids in the play we need to predict
+      
+      #loop through frames in play (not in parallel)
+      frame_result_list = foreach(output_frame_id = 1:num_frames_output) %do% {
         
-        curr_play_info = data_mod_final_frame %>% filter(game_play_id == play)
-        last_frame_id = curr_play_info$frame_id %>% unique() #last frame id before throw
-        num_frames_output = curr_play_info$num_frames_output %>% unique() #number of frames to predict
-        player_ids = curr_play_info$game_player_play_id %>% unique() #player ids in the play we need to predict
+        frame = last_frame_id + output_frame_id #current frame
         
-        #loop through frames in play (not in parallel)
-        frame_result_list = foreach(output_frame_id = 1:num_frames_output) %do% {
+        #df to store all results
+        curr_frame_all_players = curr_play_info %>%
+          #update frame stuff
+          mutate(frame_id = frame,
+                 prop_play_complete = frame/(last_frame_id + num_frames_output),
+                 throw = as.factor(ifelse(output_frame_id > 1, "post", "pre")),
+                 time_until_play_complete = ((last_frame_id + num_frames_output) - frame)*0.1,
+                 time_elapsed_post_throw = (output_frame_id - 1)*0.1,
+                 time_elapsed = frame*0.1)
+        
+        #if frame is pre throw we already know the features and everything to predict x,y,dir,s,a
+        
+        #if frame is post throw then we need to update position and dir, s, a based on previous iterations predictions
+        if (output_frame_id > 1) { 
+          #update current x, y dir, s, a as previous prediction
+          prev_frame_all_players = result
+          curr_frame_all_players = curr_frame_all_players %>%
+            mutate(x = prev_frame_all_players$pred_x,
+                   y = prev_frame_all_players$pred_y,
+                   est_dir = prev_frame_all_players$pred_dir,
+                   est_speed = prev_frame_all_players$pred_s,
+                   est_acc = prev_frame_all_players$pred_a,
+                   #initialize the preds to be NA
+                   pred_x = NA,
+                   pred_y = NA,
+                   pred_dir = NA,
+                   pred_s = NA,
+                   pred_a = NA) 
           
-          frame = last_frame_id + output_frame_id #current frame
+          #derive features
           
-          #df to store all results
-          curr_frame_all_players = curr_play_info %>%
-            #update frame stuff
-            mutate(frame_id = frame,
-                   prop_play_complete = frame/(last_frame_id + num_frames_output),
-                   throw = as.factor(ifelse(output_frame_id > 1, "post", "pre")),
-                   time_until_play_complete = ((last_frame_id + num_frames_output) - frame)*0.1,
-                   time_elapsed_post_throw = (output_frame_id - 1)*0.1,
-                   time_elapsed = frame*0.1)
-          
-          #if frame is pre throw we already know the features and everything to predict x,y,dir,s,a
-          
-          #if frame is post throw then we need to update position and dir, s, a based on previous iterations predictions
-          if (output_frame_id > 1) { 
-            #update current x, y dir, s, a as previous prediction
-            prev_frame_all_players = result
+          #closest player features
+          if(use_closest_features) {
+            closest_player_features = get_closest_player_min_dist_dir(curr_frame_all_players)
             curr_frame_all_players = curr_frame_all_players %>%
-              mutate(x = prev_frame_all_players$pred_x,
-                     y = prev_frame_all_players$pred_y,
-                     est_dir = prev_frame_all_players$pred_dir,
-                     est_speed = prev_frame_all_players$pred_s,
-                     est_acc = prev_frame_all_players$pred_a,
-                     #initialize the preds to be NA
-                     pred_x = NA,
-                     pred_y = NA,
-                     pred_dir = NA,
-                     pred_s = NA,
-                     pred_a = NA) 
-            
-            #derive features
-            
-            #closest player features
-            if(use_closest_features) {
-              closest_player_features = get_closest_player_min_dist_dir(curr_frame_all_players)
-              curr_frame_all_players = curr_frame_all_players %>%
-                select(-starts_with("closest_")) %>% #deselect the NA closest player columns so we can merge the right ones
-                full_join(closest_player_features, by = c("game_player_play_id"))
-            }
-            
-            #all other features
-            #need previous frame to compute lag stuff
-            prev_curr_frame_df = curr_frame_all_players %>%
-              rbind(prev_frame_all_players) %>%
-              arrange(game_player_play_id, frame_id)
-            
-            #derived other features
-            curr_frame_all_players = prev_curr_frame_df %>%
-              group_by(game_player_play_id) %>% #make sure to group_by each player
-              change_in_kinematics() %>%
-              derived_features() %>%
-              filter(frame_id == frame) #filter for only current frame
+              select(-starts_with("closest_")) %>% #deselect the NA closest player columns so we can merge the right ones
+              full_join(closest_player_features, by = c("game_player_play_id"))
           }
           
-          #predict next x,y
-          curr_frame_all_players = curr_frame_all_players %>%
-            mutate(pred_dist_diff = est_speed*0.1 + est_acc*0.5*0.1^2,
-                   pred_x = x + cos(((90 - est_dir) %% 360)*pi/180)*pred_dist_diff,
-                   pred_y = y + sin(((90 - est_dir) %% 360)*pi/180)*pred_dist_diff) %>%
-            select(-pred_dist_diff)
+          #all other features
+          #need previous frame to compute lag stuff
+          prev_curr_frame_df = curr_frame_all_players %>%
+            rbind(prev_frame_all_players) %>%
+            arrange(game_player_play_id, frame_id)
           
-          #predict next dir, s, a
-          all_model_features = curr_frame_all_players %>% 
-            select(all_of(all_cat_features))#pool all potential features for every model
-          full_pool = catboost.load_pool(data = all_model_features) 
-          
-          #pred dir, s, a
-          pred_dir_off = catboost.predict(dir_cat_o, full_pool, thread_count = -1)
-          pred_dir_def = catboost.predict(dir_cat_d, full_pool, thread_count = -1)
-          pred_s_off = catboost.predict(speed_cat_o, full_pool, thread_count = -1)
-          pred_s_def = catboost.predict(speed_cat_d, full_pool, thread_count = -1)
-          pred_a_off = catboost.predict(acc_cat_o, full_pool, thread_count = -1)
-          pred_a_def = catboost.predict(acc_cat_d, full_pool, thread_count = -1)
-          
-          curr_frame_all_players = curr_frame_all_players %>%
-            mutate(pred_dir = est_dir + ifelse(player_side == "Offense", pred_dir_off[row_number()], pred_dir_def[row_number()]),
-                   pred_s = ifelse(player_side == "Offense", pred_s_off[row_number()], pred_s_def[row_number()]),
-                   pred_s = exp(pred_s),
-                   pred_a = ifelse(player_side == "Offense", pred_a_off[row_number()], pred_a_def[row_number()]))
-          
-          #same colnames as previous iteration
-          if(output_frame_id > 1) {curr_frame_all_players = curr_frame_all_players %>% select(all_of(colnames(result)))}
-          
-          ### return result ###
-          result = curr_frame_all_players 
-          result
+          #derived other features
+          curr_frame_all_players = prev_curr_frame_df %>%
+            group_by(game_player_play_id) %>% #make sure to group_by each player
+            change_in_kinematics() %>%
+            derived_features() %>%
+            filter(frame_id == frame) #filter for only current frame
         }
-        bind_rows(frame_result_list)
-        #print(object.size(bind_rows(frame_result_list)), units = "Mb")
+        
+        #predict next x,y
+        curr_frame_all_players = curr_frame_all_players %>%
+          mutate(pred_dist_diff = est_speed*0.1 + est_acc*0.5*0.1^2,
+                 pred_x = x + cos(((90 - est_dir) %% 360)*pi/180)*pred_dist_diff,
+                 pred_y = y + sin(((90 - est_dir) %% 360)*pi/180)*pred_dist_diff) %>%
+          select(-pred_dist_diff)
+        
+        #predict next dir, s, a
+        all_model_features = curr_frame_all_players %>% 
+          select(all_of(all_cat_features))#pool all potential features for every model
+        full_pool = catboost.load_pool(data = all_model_features) 
+        
+        #pred dir, s, a
+        pred_dir_o = catboost.predict(dir_cat_o, full_pool, thread_count = -1)
+        pred_dir_d = catboost.predict(dir_cat_d, full_pool, thread_count = -1)
+        pred_s_o = catboost.predict(speed_cat_o, full_pool, thread_count = -1)
+        pred_s_d = catboost.predict(speed_cat_d, full_pool, thread_count = -1)
+        pred_a_o = catboost.predict(acc_cat_o, full_pool, thread_count = -1)
+        pred_a_d = catboost.predict(acc_cat_d, full_pool, thread_count = -1)
+        
+        curr_frame_all_players = curr_frame_all_players %>%
+          mutate(pred_dir = est_dir + ifelse(player_side == "Offense", pred_dir_o[row_number()], pred_dir_d[row_number()]),
+                 pred_s = ifelse(player_side == "Offense", pred_s_o[row_number()], pred_s_d[row_number()]),
+                 pred_s = exp(pred_s),
+                 pred_a = ifelse(player_side == "Offense", pred_a_o[row_number()], pred_a_d[row_number()]))
+        
+        #same colnames as previous iteration
+        if(output_frame_id > 1) {curr_frame_all_players = curr_frame_all_players %>% select(all_of(colnames(result)))}
+        
+        ### return result ###
+        result = curr_frame_all_players 
+        result
       }
-    })
-    results = bind_rows(results_list)
-    results
-  }
-  bind_rows(fold_results_list)
+      bind_rows(frame_result_list)
+      #print(object.size(bind_rows(frame_result_list)), units = "Mb")
+    }
+  })
+  bind_rows(results_list)  
 }
 
 #run CV
 #make sure data_mod and cv_split are the same as cv_train()
 plan(sequential) #quit parallel workers
 start = Sys.time()
-results = cv_predict(split, model_path = "exp_final_models", pred_subset = 100, use_closest_features = TRUE, cores = 10) 
+results = cv_predict(split, model_path = "experimentation_cv", pred_subset = 100, use_closest_features = TRUE, cores = 10) 
 end = Sys.time()
 end - start
 plan(sequential) #quit parallel workers
