@@ -55,128 +55,64 @@ min_pos_neg_dir = function(dir_diff) {
 #' outputs the min distance and direction to the closest other player
 #' input df must have: game_player_play_id, player_side, est_dir, x, y for each player in the frame
 get_closest_player_min_dist_dir = function(df) {
-  if(nrow(df) == 1) { #if only one player to predict post throw - NA closest player features
-    data.frame(game_player_play_id = df$game_player_play_id,
-               closest_teammate_dist = NA,
-               closest_teammate_dir_diff = NA,
-               closest_opponent_dist = NA,
-               closest_opponent_dir_diff = NA)
-  } else {
 
-    min_dists = combn(nrow(df), 2, FUN = function(id) {
-      i = id[1]
-      j = id[2]
+  min_dists = combn(nrow(df), 2, FUN = function(id) {
+    i = id[1]
+    j = id[2]
 
-      data.frame(
-        player1 = df$game_player_play_id[i],
-        id1 = df$game_player_play_id[i],
-        player2 = df$game_player_play_id[j],
-        id2 = df$game_player_play_id[j],
-        distance = get_dist(df$x[j] - df$x[i], df$y[j] - df$y[i]),
-        player1_side_temp = as.character(df$player_side[i]),
-        player2_side_temp = as.character(df$player_side[j]),
-        player12_dir = get_dir(df$x[j] - df$x[i], df$y[j] - df$y[i]),
-        player21_dir = get_dir(df$x[i] - df$x[j], df$y[i] - df$y[j])
-      )
-    }, simplify = FALSE) %>% bind_rows()  %>%
-      pivot_longer(cols = c(player1, player2),
-                   names_to = "role",
-                   values_to = "player1") %>%
-      mutate(player2 = ifelse(role == "player1", id2, id1),
-             player1_side = ifelse(role == "player1", player1_side_temp, player2_side_temp),
-             player2_side = ifelse(role == "player2", player1_side_temp, player2_side_temp),
-             dir_to_other_player = ifelse(role == "player1", player12_dir, player21_dir)) %>%
-      select(-c(id1, id2, role, player1_side_temp, player2_side_temp)) %>%
-      group_by(player1, player2_side) %>%
-      filter(distance == min(distance)) %>%
-      ungroup()
+    data.frame(
+      player1 = df$game_player_play_id[i],
+      id1 = df$game_player_play_id[i],
+      player2 = df$game_player_play_id[j],
+      id2 = df$game_player_play_id[j],
+      distance = get_dist(df$x[j] - df$x[i], df$y[j] - df$y[i]),
+      player1_side_temp = as.character(df$player_side[i]),
+      player2_side_temp = as.character(df$player_side[j]),
+      player12_dir = get_dir(df$x[j] - df$x[i], df$y[j] - df$y[i]),
+      player21_dir = get_dir(df$x[i] - df$x[j], df$y[i] - df$y[j])
+    )
+  }, simplify = FALSE) %>% bind_rows()  %>%
+    pivot_longer(cols = c(player1, player2),
+                 names_to = "role",
+                 values_to = "player1") %>%
+    mutate(player2 = ifelse(role == "player1", id2, id1),
+           player1_side = ifelse(role == "player1", player1_side_temp, player2_side_temp),
+           player2_side = ifelse(role == "player2", player1_side_temp, player2_side_temp),
+           dir_to_other_player = ifelse(role == "player1", player12_dir, player21_dir)) %>%
+    select(-c(id1, id2, role, player1_side_temp, player2_side_temp)) %>%
+    group_by(player1, player2_side) %>%
+    filter(distance == min(distance)) %>%
+    ungroup()
 
-    #player kinematics
-    player_kin_info = df %>% select(game_player_play_id, est_dir, est_speed, est_acc)
-    
-    #join player kinematics features
-    min_dists = min_dists %>% 
-      left_join(player_kin_info, by = join_by(player1 == game_player_play_id)) %>%
-      rename(player1_est_dir = est_dir, player1_est_speed = est_speed, player1_est_acc = est_acc) %>%
-      left_join(player_kin_info, by = join_by(player2 == game_player_play_id)) %>%
-      rename(player2_est_dir = est_dir, player2_est_speed = est_speed, player2_est_acc = est_acc) %>%
-      #derive features we want here
-      mutate(dir_diff_to_player2 = min_pos_neg_dir(dir_to_other_player - player1_est_dir), #dir diff to player 2 position
-             dir_diff_player12 = min_pos_neg_dir(player2_est_dir - player1_est_dir)) #dir diff to where player 2 is heading
-    
-    #closest teammates
-    teammate = min_dists %>%
-      filter(player1_side == player2_side) %>%
-      select(player1, player2, distance, dir_diff_player12, dir_diff_to_player2, player2_est_speed, player2_est_acc) %>%
-      rename(game_player_play_id = player1, closest_teammate = player2, closest_teammate_dist = distance, closest_teammate_dir_diff_position = dir_diff_to_player2,
-             closest_teammate_dir_diff_heading = dir_diff_player12, closest_teammate_speed = player2_est_speed, closest_teammate_acc = player2_est_acc)
-    
-    #closest opponents
-    opponent = min_dists %>%
-      filter(player1_side != player2_side) %>%
-      select(player1, player2, distance, dir_diff_player12, dir_diff_to_player2, player2_est_speed, player2_est_acc) %>%
-      rename(game_player_play_id = player1, closest_opponent = player2, closest_opponent_dist = distance, closest_opponent_dir_diff_position = dir_diff_to_player2,
-             closest_opponent_dir_diff_heading = dir_diff_player12, closest_opponent_speed = player2_est_speed, closest_opponent_acc = player2_est_acc)
-    
-    #return df with all features
-    full_join(teammate, opponent, by = "game_player_play_id")
-    
-    
-
-
-# 
-#     pairs = combn(nrow(df), 2, FUN = function(id) {
-#       i = id[1]
-#       j = id[2]
-# 
-#       data.frame(
-#         player1 = df$game_player_play_id[i],
-#         id1 = df$game_player_play_id[i],
-#         player2 = df$game_player_play_id[j],
-#         id2 = df$game_player_play_id[j],
-#         player2_distance = get_dist(df$x[j] - df$x[i], df$y[j] - df$y[i]),
-#         player1_dir = df$est_dir[i],
-#         player2_dir = df$est_dir[j],
-#         player12_dir = get_dir(df$x[j] - df$x[i], df$y[j] - df$y[i]),
-#         player21_dir = get_dir(df$x[i] - df$x[j], df$y[i] - df$y[j]),
-#         player1_side = as.character(df$player_side[i]),
-#         player2_side = as.character(df$player_side[j])
-#       )
-#     }, simplify = FALSE) %>% bind_rows()  %>%
-#       pivot_longer(cols = c(player1, player2),
-#                    names_to = "role",
-#                    values_to = "player1") %>%
-#       mutate(player2 = ifelse(role == "player1", id2, id1),
-#              player1_proper_side = ifelse(role == "player1", player1_side, player2_side),
-#              player2_proper_side = ifelse(role == "player2", player1_side, player2_side),
-#              player1_proper_dir = ifelse(role == "player1", player1_dir, player2_dir),
-#              dir_to_other_player = ifelse(role == "player1", player12_dir, player21_dir)) %>%
-#       select(-c(id1, id2, role, player1_side, player2_side, player1_dir, player2_dir, player12_dir, player21_dir)) %>%
-#       rename(player1_side = player1_proper_side,
-#              player2_side = player2_proper_side,
-#              player1_dir = player1_proper_dir)
-# 
-#     min_dist = pairs %>%
-#       group_by(player1, player2_side) %>%
-#       summarise(player2_distance = min(player2_distance), .groups = "keep") %>%
-#       left_join(pairs, by = c("player1", "player2_side", "player2_distance")) %>%
-#       ungroup() %>%
-#       mutate(other_player_dir_diff = min_pos_neg_dir(dir_to_other_player - player1_dir)) %>%
-#       select(-c(dir_to_other_player, player1_dir, player2)) %>%
-#       rename(game_player_play_id = player1)
-# 
-#     #closest opponent and teammate distance and corresponding dir diff
-#     opponent = min_dist %>% filter(player1_side != player2_side) %>%
-#       select(-c(player1_side, player2_side)) %>%
-#       rename(closest_opponent_dist = player2_distance,
-#              closest_opponent_dir_diff = other_player_dir_diff)
-#     teammate = min_dist %>% filter(player1_side == player2_side) %>%
-#       select(-c(player1_side, player2_side)) %>%
-#       rename(closest_teammate_dist = player2_distance,
-#              closest_teammate_dir_diff = other_player_dir_diff)
-# 
-#     full_join(teammate, opponent, by = "game_player_play_id")
-  }
+  #player kinematics
+  player_kin_info = df %>% select(game_player_play_id, est_dir, est_speed, est_acc)
+  
+  #join player kinematics features
+  min_dists = min_dists %>% 
+    left_join(player_kin_info, by = join_by(player1 == game_player_play_id)) %>%
+    rename(player1_est_dir = est_dir, player1_est_speed = est_speed, player1_est_acc = est_acc) %>%
+    left_join(player_kin_info, by = join_by(player2 == game_player_play_id)) %>%
+    rename(player2_est_dir = est_dir, player2_est_speed = est_speed, player2_est_acc = est_acc) %>%
+    #derive features we want here
+    mutate(dir_diff_to_player2 = min_pos_neg_dir(dir_to_other_player - player1_est_dir), #dir diff to player 2 position
+           dir_diff_player12 = min_pos_neg_dir(player2_est_dir - player1_est_dir)) #dir diff to where player 2 is heading
+  
+  #closest teammates
+  teammate = min_dists %>%
+    filter(player1_side == player2_side) %>%
+    select(player1, player2, distance, dir_diff_player12, dir_diff_to_player2, player2_est_speed, player2_est_acc) %>%
+    rename(game_player_play_id = player1, closest_teammate = player2, closest_teammate_dist = distance, closest_teammate_dir_diff_position = dir_diff_to_player2,
+           closest_teammate_dir_diff_heading = dir_diff_player12, closest_teammate_speed = player2_est_speed, closest_teammate_acc = player2_est_acc)
+  
+  #closest opponents
+  opponent = min_dists %>%
+    filter(player1_side != player2_side) %>%
+    select(player1, player2, distance, dir_diff_player12, dir_diff_to_player2, player2_est_speed, player2_est_acc) %>%
+    rename(game_player_play_id = player1, closest_opponent = player2, closest_opponent_dist = distance, closest_opponent_dir_diff_position = dir_diff_to_player2,
+           closest_opponent_dir_diff_heading = dir_diff_player12, closest_opponent_speed = player2_est_speed, closest_opponent_acc = player2_est_acc)
+  
+  #return df with all features
+  full_join(teammate, opponent, by = "game_player_play_id")
 }
 
 

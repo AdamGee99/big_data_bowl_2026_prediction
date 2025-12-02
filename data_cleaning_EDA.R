@@ -248,14 +248,20 @@ train_derived = left_join(train_derived, dist_ball_land_out, by = "game_play_id"
 #this takes the longest
 #only do it on prop_play_complete >= 0.3 since thats at least what we train the models on
 
+#plays where there is only one player to predict - no need to derive on these
+single_player_plays = data_mod %>% group_by(game_play_id, frame_id) %>% summarise(n = n()) %>% filter(n == 1) %>% pull(game_play_id) %>% unique()
+
 #just derive the close features here and join them back rather than applying it to the entire train df
-train_close_features = train %>% filter(prop_play_complete >= 0.3) %>% #dont need to derive on start of play
+train_close_features = train %>% 
+  filter(prop_play_complete >= 0.3, #dont need to derive on start of play
+         !(game_play_id %in% single_player_plays)) %>% 
   select(game_play_id, game_player_play_id, player_side, player_to_predict, frame_id, x, y, est_dir, est_speed, est_acc)
+
 
 plan(sequential) #quit any existing parallel workers
 start = Sys.time()
 close_player_features = train_close_features %>% 
-  filter(game_play_id %in% 1:100) %>% #for testing speed
+  #filter(game_play_id %in% 1:100) %>% #for testing speed
   closest_player_dist_dir()
 end = Sys.time()
 end-start
