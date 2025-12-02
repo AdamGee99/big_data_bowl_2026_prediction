@@ -65,8 +65,9 @@ saveRDS(data_mod_clean, file = here("data", "data_mod_clean.RDS"))
 
 #function to train the models on each training fold
 #saves models after which can be imported when predicting
-#df is data_mod
-cv_train_models = function(cv_split, test_prop_cutoff = 1, off_train_prop_cutoff = 0.5625, def_train_prop_cutoff = 0.5625) {
+#plays are the plays to train on
+#cv_split is the 1-5 ids of each play for 5-fold cv
+cv_train_models = function(plays, cv_split, test_prop_cutoff = 1, off_train_prop_cutoff = 0.5625, def_train_prop_cutoff = 0.5625) {
   
   #might as well do it in parallel
   registerDoFuture()
@@ -76,8 +77,8 @@ cv_train_models = function(cv_split, test_prop_cutoff = 1, off_train_prop_cutoff
   foreach(fold = 1:num_folds, .packages = c("tidyverse", "doParallel", "catboost")) %dopar% {
     data_mod_clean = readRDS(here("data", "data_mod_clean.RDS")) 
     
-    train_plays = game_play_ids[split != fold]
-    test_plays = game_play_ids[split == fold]
+    train_plays = plays[cv_split != fold]
+    test_plays = plays[cv_split == fold]
     
     #split df
     data_mod_train = data_mod_clean %>% filter(game_play_id %in% train_plays) 
@@ -166,12 +167,11 @@ cv_train_models = function(cv_split, test_prop_cutoff = 1, off_train_prop_cutoff
 
 #get trained models for each cv fold
 start = Sys.time()
-cv_train_models(split, test_prop_cutoff = 0.5625, off_train_prop_cutoff = 0.8, def_train_prop_cutoff = 0.65)
+cv_train_models(game_play_ids, split, test_prop_cutoff = 0.625, off_train_prop_cutoff = 0.6, def_train_prop_cutoff = 0.65)
 end = Sys.time()
 end-start
 plan(sequential) #quit parallel workers
 
-#0.5625 test, 0.8 off, 0.65 def - 0.731
 
 
 ############################################### CV Predict ###############################################
@@ -182,8 +182,8 @@ data_mod_final_frame = data_mod %>%
 saveRDS(data_mod_final_frame, file = here("data", "data_mod_final_frame.RDS"))
 
 #function that takes previous models and predicts on each test fold
-#df is data_mod
-#make sure cv_split is the same for cv_train function above
+#plays are the game_play_ids to predict on 
+#make sure plays, cv_split is the same for cv_train function above
 #pred_subset is the number of rows to predict on in the test folds - make this small to run quicker
 #use_best_models is a logical indicating whether to use the current best cv models or not - default is TRUE, use as comparison 
 #model_path is which folder for which models you want to use
@@ -195,7 +195,7 @@ saveRDS(data_mod_final_frame, file = here("data", "data_mod_final_frame.RDS"))
 #'    -for each player: predict next x,y and derive new features
 #'      -loop through the players in the play post throw
 #'      -predict next dir, s, a
-cv_predict = function(cv_split, pred_subset = FALSE, model_path = "experimentation_cv", use_closest_features = TRUE, cores = 10) {
+cv_predict = function(plays, cv_split, pred_subset = FALSE, model_path = "experimentation_cv", use_closest_features = TRUE, cores = 10, random_pred_subset = FALSE, seed = 1) {
   
   # #set up parallel and progress
   handlers(global = TRUE)
@@ -215,11 +215,19 @@ cv_predict = function(cv_split, pred_subset = FALSE, model_path = "experimentati
   all_cat_features = unique(c(dir_o_features, dir_d_features, speed_o_features, speed_d_features, acc_o_features, acc_d_features))
   
   #setting up grid to parallelize over (fold, play)
+  set.seed(seed)
   grid = do.call(rbind, lapply(1:num_folds, function(f) {
-    plays = game_play_ids[cv_split == f]
-    if (is.numeric(pred_subset)) plays = plays[1:pred_subset]
-    tibble(fold = f, play = plays)
+    test_plays = plays[cv_split == f]
+    if(is.numeric(pred_subset)) {
+      if(random_pred_subset) {
+        test_plays = sample(test_plays, size = pred_subset, replace = FALSE)
+      } else {
+        test_plays = test_plays[1:pred_subset]
+      }
+    }
+    tibble(fold = f, play = test_plays)
   }))
+  
   
   #current play info - includes all players to predict on this play
   data_mod_final_frame = readRDS(here("data", "data_mod_final_frame.RDS")) 
@@ -353,28 +361,42 @@ cv_predict = function(cv_split, pred_subset = FALSE, model_path = "experimentati
   bind_rows(results_list)  
 }
 
-#train models on cv folds
+#train cv
 start = Sys.time()
-cv_train_models(split, test_prop_cutoff = 0.4, off_train_prop_cutoff = 0.8, def_train_prop_cutoff = 0.65)
+cv_train_models(split, test_prop_cutoff = 0.625, off_train_prop_cutoff = 0.6, def_train_prop_cutoff = 0.65)
 end = Sys.time()
 end-start
 plan(sequential) #quit parallel workers
 
-#0.5625 test, 0.8 off, 0.65 def - 0.731 rmse (pred_subset = 100)
-#0.6000 test, 0.8 off, 0.65 def - 0.730 rmse (pred_subset = 100)
 
-
-#run CV
-#make sure data_mod and cv_split are the same as cv_train()
+#predict cv
 plan(sequential) #quit parallel workers
 start = Sys.time()
-results = cv_predict(split, model_path = "experimentation_cv", pred_subset = 100, use_closest_features = TRUE, cores = 12) 
+results = cv_predict(game_play_ids, split, model_path = "experimentation_cv", pred_subset = 500, use_closest_features = TRUE, cores = 14, random_pred_subset = TRUE, seed = 1) 
 end = Sys.time()
 end - start
 plan(sequential) #quit parallel workers
 
 
+#random subset of 2500 plays (pred_subset = 500)
+
+#0.625 test prop, 0.60 off prop, 0.65 def prop =====> 0.866 overall, 0.566 offense, 1.02 defense
+
+
+
+
+
+
+
+
 ############################################### RMSE Results ###############################################
+
+### to do:
+#' tune prop play complete for each model - can use only 50 pred_subset?
+#' tune other parameters for each model like tree depth, etc.
+#' figure out why acceleration is still squashed.. (maybe true values are weird?)
+#' experiment with other features
+
 
 #bind results into df
 results_comp = results %>%
@@ -386,11 +408,8 @@ results_comp %>%
   summarise(rmse = get_rmse(true_x = true_x, true_y = true_y,
                             pred_x = pred_x, pred_y = pred_y))
 
-### to do:
-#' tune other parameters for each model like tree depth, etc.
-#' figure out why acceleration is still squashed.. (maybe true values are weird?)
-#' experiment with other features
-#' 
+### this is experimentation_cv but save it as best_cv for now...
+
 
 #final_models - 0.762 all 
 #kaggle_best - 0.781 all
