@@ -37,23 +37,15 @@ data_mod = data_mod %>% left_join(close_features, by = c("game_player_play_id", 
 #' outputs 6 saved cv rmse offense and defense for dir, s, a respectively
 #' 
 #' could do this in parallel
-cv_rmse = function(features = "all", exclude_features = FALSE, iterations = 100, side = "both", response = "all", prop_cutoff = 0.4, post_throw_only = FALSE) {
+cv_rmse = function(features = "all", exclude_features = FALSE, iterations = 100, side = "both", response = "all", prop_cutoff = 0.625, post_throw_only = FALSE) {
   
+  #drop unnecessary features
   unnnecessary_features = c("game_player_play_id", "game_play_id", "player_role", "num_frames_output", "player_birth_date", 
-                            "x", "y", "ball_land_x", "ball_land_y", "player_name", "est_dir", "play_direction")
+                            "x", "y", "ball_land_x", "ball_land_y", "player_name", "est_dir", "play_direction", "prev_log_a_diff",
+                            "rel_velo_to_ball_land", "rel_acc_to_ball_land", "prev_speed", "prev_acc", "closest_teammate", "closest_opponent")
   data_mod = data_mod %>%
     filter((throw == "post" | throw == "pre" & lead(throw) == "post") | prop_play_complete >= prop_cutoff) #filter by prop_play_complete
   
-  if(post_throw_only) {#filer to only include frames post throw
-    data_mod = data_mod %>% filter(throw == "post")
-  }
-  if(features != "all") {#filer to only include features in features list
-    data_mod = data_mod %>% select(any_of(features))
-  }
-  if(is.character(exclude_features)) {#exclude identified features
-    data_mod = data_mod %>% select(-any_of(exclude_features))
-  }
-
   #no need to split into training/test - catboost will do that
   cat_df = data_mod %>% 
     filter(est_speed <= 11, #filter out the crazy speeds/accs
@@ -64,6 +56,16 @@ cv_rmse = function(features = "all", exclude_features = FALSE, iterations = 100,
     filter(game_player_play_id != 812) %>% #remove weird play
     select(-any_of(unnnecessary_features))
   
+  if(post_throw_only) {#filer to only include frames post throw
+    cat_df = cat_df %>% filter(throw == "post")
+  }
+  if(features != "all") {#filer to only include features in features list
+    cat_df = cat_df %>% select(any_of(features))
+  }
+  if(is.character(exclude_features)) {#exclude identified features
+    cat_df = cat_df %>% select(-any_of(exclude_features))
+  }
+  
   cat_df_o = cat_df %>% filter(player_side == "Offense") %>% select(-c(player_side, starts_with("fut_")))
   cat_df_d = cat_df %>% filter(player_side == "Defense") %>% select(-c(player_side, starts_with("fut_")))
   cat_df_o_labels = cat_df %>% filter(player_side == "Offense") %>% select(fut_dir_diff, fut_s, fut_a_diff)
@@ -72,11 +74,11 @@ cv_rmse = function(features = "all", exclude_features = FALSE, iterations = 100,
   #offense pools
   dir_pool_o = catboost.load_pool(cat_df_o, label = cat_df_o_labels$fut_dir_diff)
   s_pool_o = catboost.load_pool(cat_df_o, label = log(cat_df_o_labels$fut_s))
-  a_pool_o = catboost.load_pool(cat_df_o, label = cat_df_o_labels$fut_a_diff)
+  a_pool_o = catboost.load_pool(cat_df_o, label = cat_df_o_labels$fut_a)
   #defense pools
   dir_pool_d = catboost.load_pool(cat_df_d, label = cat_df_d_labels$fut_dir_diff)
   s_pool_d = catboost.load_pool(cat_df_d, label = log(cat_df_d_labels$fut_s))
-  a_pool_d = catboost.load_pool(cat_df_d, label = cat_df_d_labels$fut_a_diff)
+  a_pool_d = catboost.load_pool(cat_df_d, label = cat_df_d_labels$fut_a)
   
   #store results
   results_list = list()
@@ -86,19 +88,19 @@ cv_rmse = function(features = "all", exclude_features = FALSE, iterations = 100,
     if(response %in% c("all", "dir")) {
       dir_o_cv = catboost.cv(dir_pool_o, fold_count = 5, type = "Classical", partition_random_seed = 1999,
                              params = list(iterations = iterations, metric_period = 50))
-      dir_o_cv = data.frame(response = "dir", side = "offense") %>% cbind(dir_o_cv[nrow(dir_o_cv),])
+      dir_o_cv = dir_o_cv %>% mutate(response = "dir", side = "offense", iterations = (row_number() - 1)*50)
       results_list = append(results_list, list(dir_o_cv))
     }
     if(response %in% c("all", "s")) {
       speed_o_cv = catboost.cv(s_pool_o, fold_count = 5, type = "Classical", partition_random_seed = 1999,
                                params = list(iterations = iterations, metric_period = 50, od_type = "IncToDec", od_wait = 25))
-      speed_o_cv = data.frame(response = "speed", side = "offense") %>% cbind(speed_o_cv[nrow(speed_o_cv),])
+      speed_o_cv = speed_o_cv %>% mutate(response = "speed", side = "offense", iterations = (row_number() - 1)*50)
       results_list = append(results_list, list(speed_o_cv))
     }
     if(response %in% c("all", "a")) {
       acc_o_cv = catboost.cv(a_pool_o, fold_count = 5, type = "Classical", partition_random_seed = 1999,
                              params = list(iterations = iterations, metric_period = 50, od_type = "IncToDec", od_wait = 25))
-      acc_o_cv = data.frame(response = "acc", side = "offense") %>% cbind(acc_o_cv[nrow(acc_o_cv),])
+      acc_o_cv = acc_o_cv %>% mutate(response = "acc", side = "offense", iterations = (row_number() - 1)*50)
       results_list = append(results_list, list(acc_o_cv))
     }
   }
@@ -107,19 +109,19 @@ cv_rmse = function(features = "all", exclude_features = FALSE, iterations = 100,
     if(response %in% c("all", "dir")) {
       dir_d_cv = catboost.cv(dir_pool_d, fold_count = 5, type = "Classical", partition_random_seed = 1999,
                              params = list(iterations = iterations, metric_period = 50, od_type = "IncToDec", od_wait = 25))
-      dir_d_cv = data.frame(response = "dir", side = "defense") %>% cbind(dir_d_cv[nrow(dir_d_cv),])
+      dir_d_cv = dir_d_cv %>% mutate(response = "dir", side = "defense", iterations = (row_number() - 1)*50)
       results_list = append(results_list, list(dir_d_cv))
     }
     if(response %in% c("all", "s")) {
       speed_d_cv = catboost.cv(s_pool_d, fold_count = 5, type = "Classical", partition_random_seed = 1999,
                                params = list(iterations = iterations, metric_period = 50, od_type = "IncToDec", od_wait = 25))
-      speed_d_cv = data.frame(response = "speed", side = "defense") %>% cbind(speed_d_cv[nrow(speed_d_cv),])
+      speed_d_cv = speed_d_cv %>% mutate(response = "speed", side = "defense", iterations = (row_number() - 1)*50)
       results_list = append(results_list, list(speed_d_cv))
     }
     if(response %in% c("all", "a")) {
       acc_d_cv = catboost.cv(a_pool_d, fold_count = 5, type = "Classical", partition_random_seed = 1999,
                              params = list(iterations = iterations, metric_period = 50, od_type = "IncToDec", od_wait = 25))
-      acc_d_cv = data.frame(response = "acc", side = "defense") %>% cbind(acc_d_cv[nrow(acc_d_cv),])
+      acc_d_cv = acc_d_cv %>% mutate(response = "acc", side = "defense", iterations = (row_number() - 1)*50)
       results_list = append(results_list, list(acc_d_cv))
     }
   }
@@ -136,108 +138,132 @@ cv_rmse = function(features = "all", exclude_features = FALSE, iterations = 100,
 #' but is this different since were doing not entirely on post throw?
 
 ######### dir_o ######### 
-curr_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "player_position") #features currently being excluded in best cv
+off_close_exclude_features = data_mod %>% select(starts_with("closest_teammate_")) %>% colnames()
+#exclude certain features for each model
+dir_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "player_position", "log_est_speed", "prev_log_s_diff", "time_elapsed")
 
-before = cv_rmse(side = "offense", response = "dir", iterations = 100, exclude_features = curr_exclude_features)
-no_closest = cv_rmse(side = "offense", response = "dir", iterations = 100, exclude_features = c(curr_exclude_features, "closest_opponent_dist", "closest_opponent_dir_diff"))
-no_ball_dir_diff = cv_rmse(side = "offense", response = "dir", iterations = 100, exclude_features = c(curr_exclude_features, "ball_land_dir_diff"))
-no_prev_dir_diff = cv_rmse(side = "offense", response = "dir", iterations = 100, exclude_features = c(curr_exclude_features, "prev_dir_diff"))
-no_rel_ball = cv_rmse(side = "offense", response = "dir", iterations = 100, exclude_features = c(curr_exclude_features, "rel_velo_to_ball_land", "rel_acc_to_ball_land"))
-before #4.134
-no_closest #4.133
-no_ball_dir_diff #4.162
-no_prev_dir_diff #5.555
-no_rel_ball #
+# before = cv_rmse(side = "offense", response = "dir", iterations = 100, exclude_features = curr_exclude_features)
+# no_closest = cv_rmse(side = "offense", response = "dir", iterations = 100, exclude_features = c(curr_exclude_features, "closest_opponent_dist", "closest_opponent_dir_diff"))
+# no_ball_dir_diff = cv_rmse(side = "offense", response = "dir", iterations = 100, exclude_features = c(curr_exclude_features, "ball_land_dir_diff"))
+# no_prev_dir_diff = cv_rmse(side = "offense", response = "dir", iterations = 100, exclude_features = c(curr_exclude_features, "prev_dir_diff"))
+# no_rel_ball = cv_rmse(side = "offense", response = "dir", iterations = 100, exclude_features = c(curr_exclude_features, "rel_velo_to_ball_land", "rel_acc_to_ball_land"))
+# before #4.134
+# no_closest #4.133
+# no_ball_dir_diff #4.162
+# no_prev_dir_diff #5.555
+# no_rel_ball #
 
 
 #tuning iterations
-it_300 = cv_rmse(side = "offense", response = "dir", iterations = 300, exclude_features = curr_exclude_features)
-it_350 = cv_rmse(side = "offense", response = "dir", iterations = 350, exclude_features = curr_exclude_features)
-it_400 = cv_rmse(side = "offense", response = "dir", iterations = 400, exclude_features = curr_exclude_features)
-it_450 = cv_rmse(side = "offense", response = "dir", iterations = 450, exclude_features = curr_exclude_features)
-it_500 = cv_rmse(side = "offense", response = "dir", iterations = 500, exclude_features = curr_exclude_features)
-it_1000 = cv_rmse(side = "offense", response = "dir", iterations = 1000, exclude_features = curr_exclude_features)
+#it_300 = cv_rmse(side = "offense", response = "dir", iterations = 300, exclude_features = c(dir_o_exclude_features, off_close_exclude_features), prop_cutoff = 0.625)
+#it_350 = cv_rmse(side = "offense", response = "dir", iterations = 350, exclude_features = c(dir_o_exclude_features, off_close_exclude_features), prop_cutoff = 0.625)
+#it_400 = cv_rmse(side = "offense", response = "dir", iterations = 400, exclude_features = c(dir_o_exclude_features, off_close_exclude_features), prop_cutoff = 0.625)
+#it_450 = cv_rmse(side = "offense", response = "dir", iterations = 450, exclude_features = c(dir_o_exclude_features, off_close_exclude_features), prop_cutoff = 0.625)
+it_500 = cv_rmse(side = "offense", response = "dir", iterations = 500, exclude_features = c(dir_o_exclude_features, off_close_exclude_features), prop_cutoff = 0.625)
+it_750 = cv_rmse(side = "offense", response = "dir", iterations = 750, exclude_features = c(dir_o_exclude_features, off_close_exclude_features), prop_cutoff = 0.625)
+it_1000 = cv_rmse(side = "offense", response = "dir", iterations = 1000, exclude_features = c(dir_o_exclude_features, off_close_exclude_features), prop_cutoff = 0.625)
+it_1250 = cv_rmse(side = "offense", response = "dir", iterations = 1250, exclude_features = c(dir_o_exclude_features, off_close_exclude_features), prop_cutoff = 0.625)
 
-it_300
-it_350
-it_400
-it_450
 it_500
+it_750
 it_1000
-#400 seems best
+it_1250
+
+
+#1000 seems best
 
 
 ######### dir_d ######### 
-curr_exclude_features = c("player_weight", "player_position") #features currently being excluded in best cv
+#exclude certain features for each model
+dir_d_exclude_features = c("player_weight", "player_position", "log_est_speed", "prev_log_s_diff")
 
-before = cv_rmse(side = "defense", response = "dir", iterations = 100, exclude_features = curr_exclude_features)
-no_closest = cv_rmse(side = "defense", response = "dir", iterations = 100, exclude_features = c(curr_exclude_features, "closest_teammate_dist", "closest_teammate_dir_diff", "closest_opponent_dist", "closest_opponent_dir_diff"))
-before #5.118
-no_closest #5.124
+# before = cv_rmse(side = "defense", response = "dir", iterations = 100, exclude_features = curr_exclude_features)
+# no_closest = cv_rmse(side = "defense", response = "dir", iterations = 100, exclude_features = c(curr_exclude_features, "closest_teammate_dist", "closest_teammate_dir_diff", "closest_opponent_dist", "closest_opponent_dir_diff"))
+# before #5.118
+# no_closest #5.124
 
 #tuning iterations
-it_500 = cv_rmse(side = "defense", response = "dir", iterations = 500, exclude_features = curr_exclude_features)
-it_1000 = cv_rmse(side = "defense", response = "dir", iterations = 1000, exclude_features = curr_exclude_features)
-it_1500 = cv_rmse(side = "defense", response = "dir", iterations = 1500, exclude_features = curr_exclude_features)
+it_500 = cv_rmse(side = "defense", response = "dir", iterations = 500, exclude_features = dir_d_exclude_features, prop_cutoff = 0.625)
+it_1000 = cv_rmse(side = "defense", response = "dir", iterations = 1000, exclude_features = dir_d_exclude_features, prop_cutoff = 0.625)
+it_1600 = cv_rmse(side = "defense", response = "dir", iterations = 1600, exclude_features = dir_d_exclude_features, prop_cutoff = 0.625)
+it_1900 = cv_rmse(side = "defense", response = "dir", iterations = 1900, exclude_features = dir_d_exclude_features, prop_cutoff = 0.625)
+it_2000 = cv_rmse(side = "defense", response = "dir", iterations = 2000, exclude_features = dir_d_exclude_features, prop_cutoff = 0.625)
 
 it_500
 it_1000
-it_1500
-#1300 seems best
+it_1600
+it_1900
+it_2000
+
+
+#1850 seems best
 
 
 
 ######### speed_o ######### 
-curr_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "player_height", "player_weight", "player_position", "throw") #features currently being excluded in best cv
+speed_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "player_weight", "player_position", "throw", "est_speed", "prev_speed", "prev_acc")
 
-before = cv_rmse(side = "offense", response = "s", iterations = 100, exclude_features = curr_exclude_features)
-no_closest = cv_rmse(side = "offense", response = "s", iterations = 100, exclude_features = c(curr_exclude_features, "closest_opponent_dist", "closest_opponent_dir_diff"))
-before #0.1148
-no_closest #0.1148
+
+# before = cv_rmse(side = "offense", response = "s", iterations = 100, exclude_features = curr_exclude_features)
+# no_closest = cv_rmse(side = "offense", response = "s", iterations = 100, exclude_features = c(curr_exclude_features, "closest_opponent_dist", "closest_opponent_dir_diff"))
+# before #0.1148
+# no_closest #0.1148
 
 
 #tuning iterations
-it_500 = cv_rmse(side = "offense", response = "s", iterations = 500, exclude_features = curr_exclude_features)
-it_1000 = cv_rmse(side = "offense", response = "s", iterations = 1000, exclude_features = curr_exclude_features)
-it_1500 = cv_rmse(side = "offense", response = "s", iterations = 1500, exclude_features = curr_exclude_features)
-it_2000 = cv_rmse(side = "offense", response = "s", iterations = 2000, exclude_features = curr_exclude_features)
-it_2000 = cv_rmse(side = "offense", response = "s", iterations = 3000, exclude_features = curr_exclude_features)
+#it_500 = cv_rmse(side = "offense", response = "s", iterations = 500, exclude_features = c(speed_o_exclude_features, off_close_exclude_features))
+#it_1000 = cv_rmse(side = "offense", response = "s", iterations = 1000, exclude_features = c(speed_o_exclude_features, off_close_exclude_features))
+#it_1500 = cv_rmse(side = "offense", response = "s", iterations = 1500, exclude_features = c(speed_o_exclude_features, off_close_exclude_features))
+it_2000 = cv_rmse(side = "offense", response = "s", iterations = 2000, exclude_features = c(speed_o_exclude_features, off_close_exclude_features))
+it_3000 = cv_rmse(side = "offense", response = "s", iterations = 3000, exclude_features = c(speed_o_exclude_features, off_close_exclude_features))
+it_4000 = cv_rmse(side = "offense", response = "s", iterations = 4000, exclude_features = c(speed_o_exclude_features, off_close_exclude_features))
+it_5000 = cv_rmse(side = "offense", response = "s", iterations = 5000, exclude_features = c(speed_o_exclude_features, off_close_exclude_features))
+it_6000 = cv_rmse(side = "offense", response = "s", iterations = 6000, exclude_features = c(speed_o_exclude_features, off_close_exclude_features))
+it_7000 = cv_rmse(side = "offense", response = "s", iterations = 7000, exclude_features = c(speed_o_exclude_features, off_close_exclude_features))
 
-it_500
-it_1000
-it_1500
-it_2000
+
 it_3000 
-# 2500 seems best
+it_4000
+it_5000
+
+# 4000 seems best
 
 
 
 ######### speed_d ######### 
-curr_exclude_features = c("player_height", "player_weight", "player_position", "est_dir", "throw", "time_elapsed") #features currently being excluded in best cv
+speed_d_exclude_features = c("player_weight", "player_position", "throw", "est_speed", "prev_speed", "prev_acc") #replace log_est_acc with est_acc
 
-before = cv_rmse(side = "defense", response = "s", iterations = 100, exclude_features = curr_exclude_features)
-no_closest = cv_rmse(side = "defense", response = "s", iterations = 100, exclude_features = c(curr_exclude_features, "closest_teammate_dist", "closest_teammate_dir_diff", "closest_opponent_dist", "closest_opponent_dir_diff"))
-before #0.1170
-no_closest #0.1172
+
+# before = cv_rmse(side = "defense", response = "s", iterations = 100, exclude_features = curr_exclude_features)
+# no_closest = cv_rmse(side = "defense", response = "s", iterations = 100, exclude_features = c(curr_exclude_features, "closest_teammate_dist", "closest_teammate_dir_diff", "closest_opponent_dist", "closest_opponent_dir_diff"))
+# before #0.1170
+# no_closest #0.1172
 
 #tuning iterations
-it_500 = cv_rmse(side = "defense", response = "s", iterations = 500, exclude_features = curr_exclude_features)
-it_1000 = cv_rmse(side = "defense", response = "s", iterations = 1000, exclude_features = curr_exclude_features)
-it_1500 = cv_rmse(side = "defense", response = "s", iterations = 1500, exclude_features = curr_exclude_features)
-it_2000 = cv_rmse(side = "defense", response = "s", iterations = 2000, exclude_features = curr_exclude_features)
-it_3000 = cv_rmse(side = "defense", response = "s", iterations = 3000, exclude_features = curr_exclude_features)
+#it_500 = cv_rmse(side = "defense", response = "s", iterations = 500, exclude_features = speed_d_exclude_features)
+#it_1000 = cv_rmse(side = "defense", response = "s", iterations = 1000, exclude_features = speed_d_exclude_features)
+#it_1500 = cv_rmse(side = "defense", response = "s", iterations = 1500, exclude_features = speed_d_exclude_features)
+#it_2000 = cv_rmse(side = "defense", response = "s", iterations = 2000, exclude_features = speed_d_exclude_features)
+it_2000 = cv_rmse(side = "defense", response = "s", iterations = 2000, exclude_features = speed_d_exclude_features)
+it_3000 = cv_rmse(side = "defense", response = "s", iterations = 3000, exclude_features = speed_d_exclude_features)
+it_4500 = cv_rmse(side = "defense", response = "s", iterations = 4500, exclude_features = speed_d_exclude_features)
+it_5000 = cv_rmse(side = "defense", response = "s", iterations = 5000, exclude_features = speed_d_exclude_features)
+it_6000 = cv_rmse(side = "defense", response = "s", iterations = 6000, exclude_features = speed_d_exclude_features)
+it_7000 = cv_rmse(side = "defense", response = "s", iterations = 7000, exclude_features = speed_d_exclude_features)
 
-it_500
-it_1000
-it_1500
 it_2000
-it_3000 
+it_3000
+it_4500
+it_5000
+it_6000
+it_7000
+
 # 3000 seems best
 
 
 ######### acc_o ######### 
-curr_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "est_dir") #features currently being excluded in best cv
-curr_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "est_dir", "player_position", "player_role") #use just for tuning iterations
+acc_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff", "player_position", "log_est_speed", "prev_log_s_diff")
+
 
 before = cv_rmse(side = "offense", response = "a", iterations = 100, exclude_features = curr_exclude_features)
 no_closest = cv_rmse(side = "offense", response = "a", iterations = 100, exclude_features = c(curr_exclude_features, "closest_teammate_dist", "closest_teammate_dir_diff", "closest_opponent_dist", "closest_opponent_dir_diff"))
@@ -245,10 +271,10 @@ before #1.2559
 no_closest #1.2560
 
 #tuning iterations
-it_2000 = cv_rmse(side = "offense", response = "a", iterations = 2000, exclude_features = curr_exclude_features)
-it_3000 = cv_rmse(side = "offense", response = "a", iterations = 3000, exclude_features = curr_exclude_features)
-it_5000 = cv_rmse(side = "offense", response = "a", iterations = 5000, exclude_features = curr_exclude_features)
-it_7500 = cv_rmse(side = "offense", response = "a", iterations = 7500, exclude_features = curr_exclude_features)
+it_2000 = cv_rmse(side = "offense", response = "a", iterations = 2000, exclude_features = c(acc_o_exclude_features, off_close_exclude_features))
+it_3000 = cv_rmse(side = "offense", response = "a", iterations = 3000, exclude_features = c(acc_o_exclude_features, off_close_exclude_features))
+it_5000 = cv_rmse(side = "offense", response = "a", iterations = 5000, exclude_features = c(acc_o_exclude_features, off_close_exclude_features))
+it_7500 = cv_rmse(side = "offense", response = "a", iterations = 7500, exclude_features = c(acc_o_exclude_features, off_close_exclude_features))
 
 it_2000
 it_3000
@@ -260,20 +286,20 @@ it_7500
 
 
 ######### acc_d ######### 
-curr_exclude_features = c("player_position") #features currently being excluded in best cv
+acc_d_exclude_features = c("player_position", "log_est_speed", "prev_log_s_diff")
 
-before = cv_rmse(side = "defense", response = "a", iterations = 100, exclude_features = FALSE)
-no_closest = cv_rmse(side = "defense", response = "a", iterations = 100, exclude_features = c(curr_exclude_features, "closest_teammate_dist", "closest_teammate_dir_diff", "closest_opponent_dist", "closest_opponent_dir_diff"))
-before #1.3256
-no_closest #1.3255
+# before = cv_rmse(side = "defense", response = "a", iterations = 100, exclude_features = FALSE)
+# no_closest = cv_rmse(side = "defense", response = "a", iterations = 100, exclude_features = c(curr_exclude_features, "closest_teammate_dist", "closest_teammate_dir_diff", "closest_opponent_dist", "closest_opponent_dir_diff"))
+# before #1.3256
+# no_closest #1.3255
 
 
 #tuning iterations
-it_2000 = cv_rmse(side = "defense", response = "a", iterations = 2000, exclude_features = curr_exclude_features)
-it_3000 = cv_rmse(side = "defense", response = "a", iterations = 3000, exclude_features = curr_exclude_features)
-it_5000 = cv_rmse(side = "defense", response = "a", iterations = 5000, exclude_features = curr_exclude_features)
-it_7500 = cv_rmse(side = "defense", response = "a", iterations = 7500, exclude_features = curr_exclude_features)
-it_15000 = cv_rmse(side = "defense", response = "a", iterations = 15000, exclude_features = curr_exclude_features)
+it_2000 = cv_rmse(side = "defense", response = "a", iterations = 2000, exclude_features = acc_d_exclude_features)
+it_3000 = cv_rmse(side = "defense", response = "a", iterations = 3000, exclude_features = acc_d_exclude_features)
+it_5000 = cv_rmse(side = "defense", response = "a", iterations = 5000, exclude_features = acc_d_exclude_features)
+it_7500 = cv_rmse(side = "defense", response = "a", iterations = 7500, exclude_features = acc_d_exclude_features)
+it_15000 = cv_rmse(side = "defense", response = "a", iterations = 15000, exclude_features = acc_d_exclude_features)
 
 it_2000
 it_3000
