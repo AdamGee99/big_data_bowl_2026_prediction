@@ -213,19 +213,12 @@ train = train %>% filter(!(game_play_id %in% 812))
 #'  velocity to ball
 #'  acceleration to ball
 #'  
-#'  
 #'  -speed of nearest offensive player
 #'  -direction of nearest offensive player (the defense is trying to copy/predict this)
 #'  -direction to quarterback
 #'  
 #'  -velo_to ball
 #'  -acc_to_ball
-#'  
-#'  
-#'  prev_speed
-#'  prev_acc
-#'  
-
 #'  
 #'  -include acceleration vector and acceleration scalar (the scalar we can use recorded values)
 #'  
@@ -257,18 +250,18 @@ train_derived = left_join(train_derived, dist_ball_land_out, by = "game_play_id"
 
 #just derive the close features here and join them back rather than applying it to the entire train df
 train_close_features = train %>% filter(prop_play_complete >= 0.3) %>% #dont need to derive on start of play
-  select(game_play_id, game_player_play_id, player_side, player_to_predict, frame_id, x, y, est_dir)
+  select(game_play_id, game_player_play_id, player_side, player_to_predict, frame_id, x, y, est_dir, est_speed, est_acc)
 
 plan(sequential) #quit any existing parallel workers
 start = Sys.time()
 close_player_features = train_close_features %>% 
-  #filter(game_play_id %in% 1:100) %>% #for testing speed
+  filter(game_play_id %in% 1:100) %>% #for testing speed
   closest_player_dist_dir()
 end = Sys.time()
 end-start
 plan(sequential) #quit parallel workers
 
-write.csv(close_player_features, file = here("data", "closest_dir_dist_features.csv"), row.names = FALSE)
+#write.csv(close_player_features, file = here("data", "closest_dir_dist_features.csv"), row.names = FALSE)
 
 
 #join the closest features to train_derived
