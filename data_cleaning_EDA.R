@@ -206,6 +206,9 @@ train = train %>% filter(!(game_play_id %in% 812))
 #'  -whether ball_land_xy is close to boundary or not
 #'    -sometimes ball_land_xy is out of bounds and players give up trying to catch it
 #'    -ball_land_xy dist to out of bounds?
+#'    
+#'  -speed of nearest offensive player
+#'  -direction of nearest offensive player (the defense is trying to copy/predict this)
 #'  
 #'  
 #'  TO DO:
@@ -213,8 +216,6 @@ train = train %>% filter(!(game_play_id %in% 812))
 #'  velocity to ball
 #'  acceleration to ball
 #'  
-#'  -speed of nearest offensive player
-#'  -direction of nearest offensive player (the defense is trying to copy/predict this)
 #'  -direction to quarterback
 #'  
 #'  -velo_to ball
@@ -267,7 +268,7 @@ end = Sys.time()
 end-start
 plan(sequential) #quit parallel workers
 
-#write.csv(close_player_features, file = here("data", "closest_dir_dist_features.csv"), row.names = FALSE)
+#write.csv(close_player_features, file = here("data", "closest_player_features.csv"), row.names = FALSE)
 
 
 #join the closest features to train_derived

@@ -55,6 +55,8 @@ min_pos_neg_dir = function(dir_diff) {
 #' outputs the min distance and direction to the closest other player
 #' input df must have: game_player_play_id, player_side, est_dir, x, y for each player in the frame
 get_closest_player_min_dist_dir = function(df) {
+  
+  if(nrow(df) == 1) {print(df)}
 
   min_dists = combn(nrow(df), 2, FUN = function(id) {
     i = id[1]
@@ -185,7 +187,7 @@ closest_player_dist_dir = function(df) {
   handlers("progress")
   
   registerDoFuture()
-  plan(multisession, workers = 15) #out of 20 cores
+  plan(multisession, workers = 10) #out of 20 cores
   
   game_play_ids = df$game_play_id %>% unique()
   

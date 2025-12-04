@@ -155,22 +155,12 @@ dir_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff",
 
 
 #tuning iterations
-#it_300 = cv_rmse(side = "offense", response = "dir", iterations = 300, exclude_features = c(dir_o_exclude_features, off_close_exclude_features), prop_cutoff = 0.625)
-#it_350 = cv_rmse(side = "offense", response = "dir", iterations = 350, exclude_features = c(dir_o_exclude_features, off_close_exclude_features), prop_cutoff = 0.625)
-#it_400 = cv_rmse(side = "offense", response = "dir", iterations = 400, exclude_features = c(dir_o_exclude_features, off_close_exclude_features), prop_cutoff = 0.625)
-#it_450 = cv_rmse(side = "offense", response = "dir", iterations = 450, exclude_features = c(dir_o_exclude_features, off_close_exclude_features), prop_cutoff = 0.625)
-it_500 = cv_rmse(side = "offense", response = "dir", iterations = 500, exclude_features = c(dir_o_exclude_features, off_close_exclude_features), prop_cutoff = 0.625)
-it_750 = cv_rmse(side = "offense", response = "dir", iterations = 750, exclude_features = c(dir_o_exclude_features, off_close_exclude_features), prop_cutoff = 0.625)
-it_1000 = cv_rmse(side = "offense", response = "dir", iterations = 1000, exclude_features = c(dir_o_exclude_features, off_close_exclude_features), prop_cutoff = 0.625)
-it_1250 = cv_rmse(side = "offense", response = "dir", iterations = 1250, exclude_features = c(dir_o_exclude_features, off_close_exclude_features), prop_cutoff = 0.625)
+dir_o_it_4000 = cv_rmse(side = "offense", response = "dir", iterations = 4000, exclude_features = c(dir_o_exclude_features, off_close_exclude_features), prop_cutoff = 0.625)
 
-it_500
-it_750
-it_1000
-it_1250
+dir_o_it_4000 %>% filter(iterations >= 200) %>% ggplot(aes(x = iterations, y = test.RMSE.mean)) + geom_point()
+dir_o_it_4000 %>% filter(test.RMSE.mean == min(test.RMSE.mean))
+#900 best
 
-
-#1000 seems best
 
 
 ######### dir_d ######### 
@@ -183,20 +173,13 @@ dir_d_exclude_features = c("player_weight", "player_position", "log_est_speed", 
 # no_closest #5.124
 
 #tuning iterations
-it_500 = cv_rmse(side = "defense", response = "dir", iterations = 500, exclude_features = dir_d_exclude_features, prop_cutoff = 0.625)
-it_1000 = cv_rmse(side = "defense", response = "dir", iterations = 1000, exclude_features = dir_d_exclude_features, prop_cutoff = 0.625)
-it_1600 = cv_rmse(side = "defense", response = "dir", iterations = 1600, exclude_features = dir_d_exclude_features, prop_cutoff = 0.625)
-it_1900 = cv_rmse(side = "defense", response = "dir", iterations = 1900, exclude_features = dir_d_exclude_features, prop_cutoff = 0.625)
-it_2000 = cv_rmse(side = "defense", response = "dir", iterations = 2000, exclude_features = dir_d_exclude_features, prop_cutoff = 0.625)
+dir_d_it_5000 = cv_rmse(side = "defense", response = "dir", iterations = 5000, exclude_features = dir_d_exclude_features, prop_cutoff = 0.625)
 
-it_500
-it_1000
-it_1600
-it_1900
-it_2000
+dir_d_it_5000 %>% filter(iterations >= 200) %>% ggplot(aes(x = iterations, y = test.RMSE.mean)) + geom_point()
+dir_d_it_5000 %>% filter(iterations >= 200) %>% ggplot(aes(x = iterations, y = test.RMSE.std)) + geom_point()
+dir_d_it_5000 %>% filter(test.RMSE.mean == min(test.RMSE.mean))
 
-
-#1850 seems best
+#1950 best
 
 
 
@@ -211,22 +194,12 @@ speed_o_exclude_features = c("closest_teammate_dist", "closest_teammate_dir_diff
 
 
 #tuning iterations
-#it_500 = cv_rmse(side = "offense", response = "s", iterations = 500, exclude_features = c(speed_o_exclude_features, off_close_exclude_features))
-#it_1000 = cv_rmse(side = "offense", response = "s", iterations = 1000, exclude_features = c(speed_o_exclude_features, off_close_exclude_features))
-#it_1500 = cv_rmse(side = "offense", response = "s", iterations = 1500, exclude_features = c(speed_o_exclude_features, off_close_exclude_features))
-it_2000 = cv_rmse(side = "offense", response = "s", iterations = 2000, exclude_features = c(speed_o_exclude_features, off_close_exclude_features))
-it_3000 = cv_rmse(side = "offense", response = "s", iterations = 3000, exclude_features = c(speed_o_exclude_features, off_close_exclude_features))
-it_4000 = cv_rmse(side = "offense", response = "s", iterations = 4000, exclude_features = c(speed_o_exclude_features, off_close_exclude_features))
-it_5000 = cv_rmse(side = "offense", response = "s", iterations = 5000, exclude_features = c(speed_o_exclude_features, off_close_exclude_features))
-it_6000 = cv_rmse(side = "offense", response = "s", iterations = 6000, exclude_features = c(speed_o_exclude_features, off_close_exclude_features))
-it_7000 = cv_rmse(side = "offense", response = "s", iterations = 7000, exclude_features = c(speed_o_exclude_features, off_close_exclude_features))
+speed_o_it_5000 = cv_rmse(side = "offense", response = "s", iterations = 5000, exclude_features = c(speed_o_exclude_features, off_close_exclude_features))
 
+speed_o_it_5000 %>% filter(iterations >= 1500) %>% ggplot(aes(x = iterations, y = test.RMSE.mean)) + geom_point()
+speed_o_it_5000 %>% filter(test.RMSE.mean == min(test.RMSE.mean))
 
-it_3000 
-it_4000
-it_5000
-
-# 4000 seems best
+# 4300 best
 
 
 
@@ -240,25 +213,13 @@ speed_d_exclude_features = c("player_weight", "player_position", "throw", "est_s
 # no_closest #0.1172
 
 #tuning iterations
-#it_500 = cv_rmse(side = "defense", response = "s", iterations = 500, exclude_features = speed_d_exclude_features)
-#it_1000 = cv_rmse(side = "defense", response = "s", iterations = 1000, exclude_features = speed_d_exclude_features)
-#it_1500 = cv_rmse(side = "defense", response = "s", iterations = 1500, exclude_features = speed_d_exclude_features)
-#it_2000 = cv_rmse(side = "defense", response = "s", iterations = 2000, exclude_features = speed_d_exclude_features)
-it_2000 = cv_rmse(side = "defense", response = "s", iterations = 2000, exclude_features = speed_d_exclude_features)
-it_3000 = cv_rmse(side = "defense", response = "s", iterations = 3000, exclude_features = speed_d_exclude_features)
-it_4500 = cv_rmse(side = "defense", response = "s", iterations = 4500, exclude_features = speed_d_exclude_features)
-it_5000 = cv_rmse(side = "defense", response = "s", iterations = 5000, exclude_features = speed_d_exclude_features)
-it_6000 = cv_rmse(side = "defense", response = "s", iterations = 6000, exclude_features = speed_d_exclude_features)
-it_7000 = cv_rmse(side = "defense", response = "s", iterations = 7000, exclude_features = speed_d_exclude_features)
+speed_d_it_10000 = cv_rmse(side = "defense", response = "s", iterations = 10000, exclude_features = speed_d_exclude_features)
 
-it_2000
-it_3000
-it_4500
-it_5000
-it_6000
-it_7000
+speed_d_it_10000 %>% filter(iterations >= 3000) %>% ggplot(aes(x = iterations, y = test.RMSE.mean)) + geom_point()
+speed_d_it_10000 %>% filter(test.RMSE.mean == min(test.RMSE.mean))
 
-# 3000 seems best
+#5500 best
+
 
 
 ######### acc_o ######### 
@@ -271,17 +232,12 @@ before #1.2559
 no_closest #1.2560
 
 #tuning iterations
-it_2000 = cv_rmse(side = "offense", response = "a", iterations = 2000, exclude_features = c(acc_o_exclude_features, off_close_exclude_features))
-it_3000 = cv_rmse(side = "offense", response = "a", iterations = 3000, exclude_features = c(acc_o_exclude_features, off_close_exclude_features))
-it_5000 = cv_rmse(side = "offense", response = "a", iterations = 5000, exclude_features = c(acc_o_exclude_features, off_close_exclude_features))
-it_7500 = cv_rmse(side = "offense", response = "a", iterations = 7500, exclude_features = c(acc_o_exclude_features, off_close_exclude_features))
+acc_o_it_9000 = cv_rmse(side = "offense", response = "a", iterations = 9000, exclude_features = c(acc_o_exclude_features, off_close_exclude_features))
 
-it_2000
-it_3000
-it_5000
-it_7500
+acc_o_it_9000 %>% filter(iterations >= 3000) %>% ggplot(aes(x = iterations, y = test.RMSE.mean)) + geom_point()
+acc_o_it_9000 %>% filter(test.RMSE.mean == min(test.RMSE.mean))
 
-#7000 seems best
+#5600 best
 
 
 
@@ -295,18 +251,12 @@ acc_d_exclude_features = c("player_position", "log_est_speed", "prev_log_s_diff"
 
 
 #tuning iterations
-it_2000 = cv_rmse(side = "defense", response = "a", iterations = 2000, exclude_features = acc_d_exclude_features)
-it_3000 = cv_rmse(side = "defense", response = "a", iterations = 3000, exclude_features = acc_d_exclude_features)
-it_5000 = cv_rmse(side = "defense", response = "a", iterations = 5000, exclude_features = acc_d_exclude_features)
-it_7500 = cv_rmse(side = "defense", response = "a", iterations = 7500, exclude_features = acc_d_exclude_features)
-it_15000 = cv_rmse(side = "defense", response = "a", iterations = 15000, exclude_features = acc_d_exclude_features)
+acc_d_it_12000 = cv_rmse(side = "defense", response = "a", iterations = 12000, exclude_features = acc_d_exclude_features)
+ 
+acc_d_it_12000 %>% filter(iterations >= 6000) %>% ggplot(aes(x = iterations, y = test.RMSE.mean)) + geom_point()
+acc_d_it_12000 %>% filter(test.RMSE.mean == min(test.RMSE.mean))
 
-it_2000
-it_3000
-it_5000
-it_7500
-
-#like 11000 best
+#9850 best
 
 
 #unfortunately we cant really get feature importance here either - if we want that, need to fit the models individually below - don't need test set
