@@ -10,19 +10,17 @@ My models were only trained on the data provided in the kaggle competition. This
 
 On each play, the players required for prediction included the target reciever and any defensive player within a 5 yard radius of the target reciever at throw, or is able to reach the ball landing location at 12yds/second.
 
-The full list of features given can be found from the [kaggle data](https://www.kaggle.com/competitions/nfl-big-data-bowl-2026-prediction/data).
-
 ## Approach
 
 Six total models that predict the direction difference, speed, and acceleration of the proceeding frame for offensive and defensive players respectively. This contrasts most other approaches which predicted the future x,y positions. I figured updating the postion based on direction, speed, and acceleration is a more universal appraoch across the entire field whereas predicting x,y might depend on the current field position.
 
 I used [CatBoost](https://catboost.ai/) since it provides quick accurate predictions with little tuning. 
 
-Speed model predicted the proceeding frame's log(speed) and back-transformed to the original scale since speeds are strcitly positive. 
+Speed model predicted the proceeding frame's log(speed) and back-transformed to the original scale, since speeds are strcitly positive. 
 
-Prior to training, data was cleaned to remove plays that were left recording for too long and clearly impossible speeds and accelerations. 
+Prior to training, data was cleaned to remove clearly impossible speeds and accelerations or plays that were left recording for too long. 
 
-All models were trained on all the frames where the ball was in the air, or the frames where the quarteback has yet to throw the ball but the play is overall 62.5% complete. The initial 62.5% of frames in the play were not used to train the models. This cutoff was tuned through CV.
+Models were trained on all the frames where the ball was in the air, or frames before the ball is thrown but the play is 62.5% overall complete. The initial 62.5% of frames in the play were not used to train the models. This cutoff was tuned through CV.
 
 
 ## Feature Engineering
@@ -31,11 +29,12 @@ Below is the entire feature list used to predict the direction, speed, and accel
 - **time features**: time until play complete, time elapsed, time elapsed post-throw, frame_id of throw.
 - **player-player features**: closest opponent and closest teammate distance, direction difference, direction, speed, acceleration.
 - **player info**: player height, weight.
-- **other**: distance to ball landing point, difference in direction and direction to ball landing point, distance to out of bounds, direction to nearest out of bounds.
+- **ball landing point features**: distance to ball landing point, difference in direction to ball landing point.
+- **out of bounds features**: distance to out of bounds, difference in direction to nearest out of bounds.
 
 Each model used a different combination of these features (eg, speed model used current log(speed) instead of current speed).
 
-The predominantly important features were kinematics, followed by the direction to the ball landing point, then various time features. Surprisingly, the player-player features did not seem to help much. 
+The predominantly important features were kinematics, followed by the ball landing point features, then various time features. Surprisingly, the player-player features did not seem to help much. 
 
 **show feautre importance figures here**
 
