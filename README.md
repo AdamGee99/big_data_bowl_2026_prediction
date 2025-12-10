@@ -44,12 +44,15 @@ The predominantly important features were kinematics, followed by the ball landi
 - These are accurate predictions. My average error of player movement when ball is in the air is roughly equivalent to 2.5 times the length of a football.
 
 <p align="center">
-  <img src="visuals/267/267.gif" width="600"/>
-  <br>
-  <em>Predicted vs Actual Movement — sample play 1</em>
+  <img src="visuals/24/24.gif" width="48%" />
+  <img src="visuals/267/267.gif" width="48%" />
+</p>
+
+<p align="center">
+  <em>Predicted vs true position for two sample plays.</em>
 </p>
 
 **Key Findings:**
-  -Defense harder to predict than offense. Offense generally go where ball is landing but defense may go or may be already gaurding another player.
+  - Defense harder to predict than offense. Offense generally go where ball is landing but defense may go or may be already gaurding another player.
   
 
