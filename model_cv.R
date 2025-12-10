@@ -378,7 +378,7 @@ plan(sequential)
 #predict cv
 plan(sequential) #quit parallel workers
 start = Sys.time()
-results = cv_predict(game_play_ids, split, model_path = "exp_final_models", pred_subset = 200, use_closest_features = TRUE, cores = 14, random_pred_subset = FALSE, seed = 1) 
+results = cv_predict(game_play_ids, split, model_path = "exp_final_models", pred_subset = 100, use_closest_features = TRUE, cores = 14, random_pred_subset = FALSE, seed = 1) 
 end = Sys.time()
 end - start
 plan(sequential) 
@@ -668,7 +668,7 @@ plot_player_movement_pred(group_id = curr_game_player_play_id,
                             rename(pred_x = pred_x, pred_y = pred_y))
 
 #multiple players on play
-group_id = 1
+group_id = 267 #use 51 for github animation
 curr_game_play_id = results_comp %>% 
   group_by(game_play_id) %>%
   filter(cur_group_id() == group_id) %>% 
@@ -680,6 +680,27 @@ multi_player_movement_pred(group_id = curr_game_play_id,
                              select(game_player_play_id, frame_id, pred_x, pred_y) %>%
                              rename(pred_x = pred_x, pred_y = pred_y))
 
+
+#generate gif for github
+save_path = here("animation_temp_files", paste0(curr_game_play_id))
+if(!dir.exists(save_path)) {dir.create(save_path)}
+
+#frames post throw for this play
+frames = results_comp %>% filter(game_play_id == curr_game_play_id, throw == "post" | (throw == "pre" & lead(throw) == "post")) %>% 
+  pull(frame_id) %>% unique() %>% sort()
+
+#generate fig for each frame
+for(frame in frames) {
+  plot = multi_player_movement_pred_frame(group_id = curr_game_play_id,
+                                          group_id_preds = results_comp %>%
+                                            filter(game_play_id == curr_game_play_id) %>%
+                                            select(game_player_play_id, frame_id, pred_x, pred_y) %>%
+                                            rename(pred_x = pred_x, pred_y = pred_y),
+                                          frame = frame)
+  
+  ggsave(filename = here(save_path, paste0("frame_", frame, ".png")),
+         width = 10, height = 7.75, dpi = 600)
+}
 
 
 

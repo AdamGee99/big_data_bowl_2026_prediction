@@ -4,6 +4,9 @@ library(tidyverse)
 library(here)
 library(scales)
 library(patchwork)
+library(gganimate)
+library(gifski)
+
 
 
 
@@ -551,28 +554,135 @@ multi_player_movement_pred = function(group_id, group_id_preds) {
            x, y, ball_land_x, ball_land_y, throw, player_side, player_name) %>%
     mutate(colour = ifelse( #add colours depending on offense or defense
       player_side == "Offense", 
-      col_numeric(c("black", "green"), domain = range(frame_id))(frame_id),
-      col_numeric(c("black", "blue"), domain = range(frame_id))(frame_id)
+      col_numeric(c("black", "#FF4500"), domain = range(frame_id))(frame_id),
+      col_numeric(c("black", "#1E90FF"), domain = range(frame_id))(frame_id)
     )) %>% 
     left_join(group_id_preds, by = c("game_player_play_id", "frame_id"))
   game_id = plot_df$game_id %>% unique()
   play_id = plot_df$play_id %>% unique()
+  x_range = max(plot_df$x) - min(plot_df$x)
+  y_range = max(plot_df$y) - min(plot_df$y)
+  
   
   #plot
-  ggplot(data = plot_df, mapping = aes(x = x, y = y, colour = colour, shape = throw)) + #plot the movement
+  ggplot(data = plot_df, mapping = aes(x = x, y = y, colour = colour, shape = throw, group = game_player_play_id)) + #plot the movement
     geom_point(size = 3) +
+    geom_path(plot_df %>% filter(throw == "post"), mapping = aes(x = x, y = y), size = 0.75) + #use geom_path to plot points in order of df
+    geom_path(plot_df %>% filter(throw == "pre" | (throw == "post" & lag(throw) == "pre")), mapping = aes(x = x, y = y)) + #use geom_path to plot points in order of df
+    geom_path(mapping = aes(x = pred_x, y = pred_y), colour = "#00CD00", size = 0.75) + #use geom_path to plot points in order of df
     scale_colour_identity() + 
-    geom_point(aes(fill = "True"), x = NA, y = NA, color = "green", size = 2.5) + #dummy variable for legend
+    geom_point(aes(fill = "Offense True Postion"), x = NA, y = NA, color = "#FF4500", size = 2.5) + #dummy variable for legend
+    geom_point(aes(fill = "Defense True Postion"), x = NA, y = NA, color = "#1E90FF", size = 2.5) + #dummy variable for legend
     scale_shape_manual(values = c(19, 1)) + #hollow is pre throw, filled is post throw
-    geom_point(mapping = aes(x = ball_land_x, y = ball_land_y, fill = "Ball Land"), colour = "red", size = 4) +
-    geom_point(mapping = aes(x = pred_x, y = pred_y, fill = "Predicted"), colour = "orange", size = 2.5) +
-    scale_fill_manual(name = "", values = c("True" = 16, "Ball Land" = 16, "Predicted" = 16)) +
+    geom_point(mapping = aes(x = ball_land_x, y = ball_land_y, fill = "Ball Landing Point"), colour = "orange", size = 5) +
+    geom_point(mapping = aes(x = pred_x, y = pred_y, fill = "Predicted"), colour = "#00CD00", size = 2.5) +
+    scale_fill_manual(name = "", values = c("Offense True Postion" = 16, "Defense True Postion" = 16, "Ball Landing Point" = 16, "Predicted" = 16)) +
     labs(title = paste0("Game: ", game_id, ", Play: ", play_id)) +
-    scale_x_continuous(n.breaks = 10) +
-    scale_y_continuous(n.breaks = 10) +
+    scale_x_continuous(n.breaks = ceiling(round(x_range))) +
+    scale_y_continuous(n.breaks = ceiling(round(y_range))) +
     theme_bw() +
     guides(colour = "none", shape = "none")
 }
+
+#maybe plot on an actual football field for better context
+
+
+
+#' same as above but animating predictions into a gif
+multi_player_movement_pred_anim = function(group_id, group_id_preds) {
+  plot_df = train %>% 
+    filter(player_to_predict, #filter for only players that were targeted
+           game_play_id == group_id) %>% 
+    select(game_id, play_id, game_play_id, game_player_play_id, frame_id, 
+           x, y, ball_land_x, ball_land_y, throw, player_side, player_name) %>%
+    mutate(colour = ifelse( #add colours depending on offense or defense
+      player_side == "Offense", 
+      col_numeric(c("black", "#FF4500"), domain = range(frame_id))(frame_id),
+      col_numeric(c("black", "#1E90FF"), domain = range(frame_id))(frame_id)
+    )) %>% 
+    left_join(group_id_preds, by = c("game_player_play_id", "frame_id"))
+  game_id = plot_df$game_id %>% unique()
+  play_id = plot_df$play_id %>% unique()
+  x_range = max(plot_df$x) - min(plot_df$x)
+  y_range = max(plot_df$y) - min(plot_df$y)
+  
+  
+  #plot
+  anim_plot = ggplot(data = plot_df, mapping = aes(x = x, y = y, colour = colour, shape = throw, group = game_player_play_id)) + #plot the movement
+    geom_point(size = 3) +
+    geom_path(plot_df %>% filter(throw == "post"), mapping = aes(x = x, y = y), size = 0.75) + #use geom_path to plot points in order of df
+    geom_path(plot_df %>% filter(throw == "pre" | (throw == "post" & lag(throw) == "pre")), mapping = aes(x = x, y = y)) + #use geom_path to plot points in order of df
+    geom_path(mapping = aes(x = pred_x, y = pred_y), colour = "#00CD00", size = 0.75) + #use geom_path to plot points in order of df
+    scale_colour_identity() + 
+    geom_point(aes(fill = "Offense True Postion"), x = NA, y = NA, color = "#FF4500", size = 2.5) + #dummy variable for legend
+    geom_point(aes(fill = "Defense True Postion"), x = NA, y = NA, color = "#1E90FF", size = 2.5) + #dummy variable for legend
+    scale_shape_manual(values = c(19, 1)) + #hollow is pre throw, filled is post throw
+    geom_point(mapping = aes(x = ball_land_x, y = ball_land_y, fill = "Ball Landing Point"), colour = "orange", size = 5) +
+    geom_point(mapping = aes(x = pred_x, y = pred_y, fill = "Predicted"), colour = "#00CD00", size = 2.5) +
+    scale_fill_manual(name = "", values = c("Offense True Postion" = 16, "Defense True Postion" = 16, "Ball Landing Point" = 16, "Predicted" = 16)) +
+    scale_x_continuous(n.breaks = ceiling(round(x_range))) +
+    scale_y_continuous(n.breaks = ceiling(round(y_range))) +
+    theme_bw() +
+    guides(colour = "none", shape = "none") +
+    transition_reveal(frame_id) +
+    labs(title = paste0("Game: ", game_id, ", Play: ", play_id, ", Frame: {frame} of {nframes}"))
+  
+  animate(anim_plot, fps = 20, width = 800, height = 500,
+          renderer = gifski_renderer("animation_temp_files/test.gif"))
+}
+
+
+#' plotting up to a certain frame
+multi_player_movement_pred_frame = function(group_id, group_id_preds, frame) {
+  plot_df = train %>% 
+    filter(player_to_predict, #filter for only players that were targeted
+           game_play_id == group_id) %>% 
+    select(game_id, play_id, game_play_id, game_player_play_id, frame_id, 
+           x, y, ball_land_x, ball_land_y, throw, player_side, player_name) %>%
+    mutate(colour = ifelse( #add colours depending on offense or defense
+      player_side == "Offense", 
+      col_numeric(c("black", "#FF4500"), domain = range(frame_id))(frame_id),
+      col_numeric(c("black", "#1E90FF"), domain = range(frame_id))(frame_id)
+    )) %>% 
+    left_join(group_id_preds, by = c("game_player_play_id", "frame_id"))
+  game_id = plot_df$game_id %>% unique()
+  play_id = plot_df$play_id %>% unique()
+  max_frame = plot_df$frame_id %>% max()
+  max_x = max(c(plot_df$x, plot_df$pred_x), na.rm = TRUE)
+  max_y = max(c(plot_df$y, plot_df$pred_y), na.rm = TRUE)
+  min_x = min(c(plot_df$x, plot_df$pred_x), na.rm = TRUE)
+  min_y = min(c(plot_df$y, plot_df$pred_y), na.rm = TRUE)
+  max_range = max(c(max_x - min_x, max_y - min_y)) #max distance on x or y axis for plotting
+  ball_land_x = unique(plot_df$ball_land_x)
+  ball_land_y = unique(plot_df$ball_land_y)
+  
+  
+  #plot
+  ggplot(data = plot_df, mapping = aes(x = x, y = y, colour = colour, shape = throw, group = game_player_play_id)) + #plot the movement
+    #geom_path plots points in order of df
+    geom_path(plot_df %>% filter(throw == "post"), mapping = aes(x = x, y = y), size = 0.75) +  #post throw true position
+    geom_path(plot_df %>% filter(throw == "pre" | (throw == "post" & lag(throw) == "pre")), mapping = aes(x = x, y = y)) +  #pre throw true position
+    geom_path(plot_df %>% filter(frame_id <= frame), mapping = aes(x = pred_x, y = pred_y), colour = "#00CD00", size = 0.75) + #post throw predicted position
+    #geom_point plots the position in each frame
+    geom_point(size = 3) + #pre and post throw true position
+    geom_point(plot_df %>% filter(frame_id <= frame), mapping = aes(x = pred_x, y = pred_y, fill = "Predicted Position"), colour = "#00CD00", size = 2.5) + #post throw predicted position
+    #dummy variable for legend
+    geom_point(aes(fill = "Offense True Postion"), x = NA, y = NA, color = "#FF4500", size = 2.5) + 
+    geom_point(aes(fill = "Defense True Postion"), x = NA, y = NA, color = "#1E90FF", size = 2.5) + 
+    #ball landing point
+    geom_point(mapping = aes(x = ball_land_x, y = ball_land_y, fill = "Ball Landing Point"), colour = "orange", size = 5) +
+    scale_colour_identity() + 
+    scale_shape_manual(values = c(19, 1)) + #hollow is pre throw, filled is post throw
+    scale_fill_manual(name = "", values = c("Offense True Postion" = 16, "Defense True Postion" = 16, "Ball Landing Point" = 16, "Predicted Position" = 16)) +
+    scale_x_continuous(n.breaks = ceiling(max_range), limits = c(min(c(ball_land_x, mean(c(max_x, min_x)) - max_range/2)) - 1, max(c(ball_land_x, mean(c(max_x, min_x)) + max_range/2)) + 1)) +
+    scale_y_continuous(n.breaks = ceiling(max_range), limits = c(min(c(ball_land_y, mean(c(max_y, min_y)) - max_range/2)) - 1, max(c(ball_land_y, mean(c(max_y, min_y)) + max_range/2)) + 1)) +
+    theme_bw() +
+    guides(colour = "none", shape = "none") +
+    labs(title = paste0("Game: ", game_id, ", Play: ", play_id)) +
+    annotate("text", label = paste0("Frame ", frame, " of ", max_frame), 
+             x = -Inf, y = Inf, hjust = -0.3, vjust = 3, size = 5)
+}
+
 
 
 #' ball_land_dir_diff vs frame_id
