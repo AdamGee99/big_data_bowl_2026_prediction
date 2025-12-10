@@ -7,3 +7,4 @@ git
 catboost_info/
 train_dir/
 models/
+animation_temp_files/
