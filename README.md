@@ -25,27 +25,36 @@ Models trained on all the frames where the ball was in the air, or frames before
 
 ## Feature Engineering
 Features list:
-- **kinematics**: current direction, speed, log(speed), acceleration. Difference in direction, acceleration, log(speed) from previous frame. 
-- **time features**: time until play complete, time elapsed, time elapsed post-throw, frame_id of throw.
-- **player-player features**: closest opponent and closest teammate distance, direction difference, direction, speed, acceleration.
-- **player info**: player height, weight.
-- **ball landing point features**: distance to ball landing point, difference in direction to ball landing point.
-- **out of bounds features**: distance to out of bounds, difference in direction to nearest out of bounds.
+- **kinematics**: current and lagged direction difference, speed, log(speed), acceleration. 
+- **time features**: time until play complete, time elapsed, time elapsed post-throw, frame_id, frame_id of throw.
+- **player-player features**: closest opponent and closest teammate distance, difference in direction to eachother, difference in direction to ball, speed, acceleration.
+- **ball landing point features**: distance to ball landing point, difference in direction to ball landing point, ball landing point distance to out of bounds.
+- **other**: distance to out of bounds, difference in direction to nearest out of bounds,  player height, player weight, absolute yardline number.
 
 Each model used a different combination of these features (eg, speed model used current log(speed) instead of current speed).
 
-The predominantly important features were kinematics, followed by the ball landing point features, then various time features. Surprisingly, the player-player features did not seem to help much. 
-
-**show feature importance figures here**
+<p align="center">
+  <img src="visuals/feature_importance/dir_o_feat_imp_plot.png" width="48%" />
+  <img src="visuals/feature_importance/speed_o_feat_imp_plot.png" width="48%" />
+</p>
 
 ## Results
 - Final results TBA. They are scored on the remaining games in the 2025-2026 regular season.
 - Training data CV rmse around 0.77.
-- These are accurate predictions. My average error of player movement when ball is in the air is roughly equivalent to 2.5 times the length of a football.
+- These are accurate predictions. Average error of player movement when ball is in the air is roughly equivalent to 2.5 times the length of a football.
 
+<p align="center">
+  <img src="visuals/24/24_v2.gif" width="48%" />
+  <img src="visuals/267/267_v2.gif" width="48%" />
+</p>
 
+<p align="center">
+  <em>Predicted vs true position when ball is in the air for two sample plays.</em>
+</p>
 
 **Key Findings:**
-  -Defense harder to predict than offense. Offense generally go where ball is landing but defense may go or may be already gaurding another player.
+  - Defense harder to predict than offense. Offense generally go where ball is landing but defense may go or may be already gaurding another player.
+  - Predominantly important features were kinematics, especially in speed, acceleration models. Then ball landing point features, then various time features. Surprisingly, the player-player features did not seem to help much.
+  - Embedding players would probably allow model to learn more player to player differences.
   
 
