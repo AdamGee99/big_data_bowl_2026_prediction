@@ -54,7 +54,7 @@ Each model used a different combination of these features (eg, speed model used 
 
 **Key Findings:**
   - Defense harder to predict than offense. Offense generally go where ball is landing but defense may go or may be already gaurding another player.
-  - Predominantly important features were kinematics, then ball landing point features, then various time features. Surprisingly, the player-player features did not seem to help much.
-  - embedding players would probably allow model to learn more player to player differences.
+  - Predominantly important features were kinematics, especially in speed, acceleration models. Then ball landing point features, then various time features. Surprisingly, the player-player features did not seem to help much.
+  - Embedding players would probably allow model to learn more player to player differences.
   
 
