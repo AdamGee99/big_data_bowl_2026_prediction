@@ -699,7 +699,7 @@ for(frame in frames) {
                                           frame = frame)
   
   ggsave(filename = here(save_path, paste0("frame_", frame, ".png")),
-         width = 10, height = 7.75, dpi = 600)
+         width = 8, height = 8, dpi = 600)
 }
 
 
@@ -850,6 +850,50 @@ write.table(rownames(acc_cat_d$feature_importances), file = here("models", "exp_
 #maybe make the feature the difference of speed to rel_velo and acc to rel_acc...?
 
 
+
+#feature importance plot
+
+#dir_o
+dir_o_feat_importance = data.frame(importance = dir_cat_o$feature_importances) %>% rownames_to_column(var = "feature") %>%
+  arrange(desc(importance)) %>% 
+  mutate(feature = factor(feature, levels = feature),
+         feature_type = case_when(
+           feature %in% c("est_speed", "est_acc", "prev_dir_diff", "prev_a_diff") ~ "kinematic features",
+           feature %in% c("frame_id", "throw", "prop_play_complete", "time_until_play_complete", "time_elapsed_post_throw", "max_frame_id") ~ "time features",
+           feature %in% c("ball_land_dist_out", "ball_land_dir_diff", "dist_ball_land") ~ "ball landing features",
+           startsWith(as.character(feature), "closest_") ~ "player-player features",
+           .default = "other"
+         ))
+
+ggplot(dir_o_feat_importance, mapping = aes(x = feature, y = importance, fill = feature_type)) +
+  geom_bar(stat = "identity") +
+  theme_bw() + 
+  labs(x = "Feature", y = "Importance", title = "Offense Direction Model Feature Importance") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        legend.position = "bottom") +
+  guides(fill = guide_legend(title = ""))
+  
+
+
+#speed_o
+speed_o_feat_importance = data.frame(importance = speed_cat_o$feature_importances) %>% rownames_to_column(var = "feature") %>%
+  arrange(desc(importance)) %>% 
+  mutate(feature = factor(feature, levels = feature),
+         feature_type = case_when(
+           feature %in% c("log_est_speed", "prev_log_s_diff", "est_acc", "prev_dir_diff", "prev_a_diff") ~ "kinematic features",
+           feature %in% c("frame_id", "throw", "prop_play_complete", "time_until_play_complete", "time_elapsed_post_throw", "max_frame_id") ~ "time features",
+           feature %in% c("ball_land_dist_out", "ball_land_dir_diff", "dist_ball_land") ~ "ball landing features",
+           startsWith(as.character(feature), "closest_") ~ "player-player features",
+           .default = "other"
+         ))
+
+ggplot(speed_o_feat_importance, mapping = aes(x = feature, y = importance, fill = feature_type)) +
+  geom_bar(stat = "identity") +
+  theme_bw() + 
+  labs(x = "Feature", y = "Importance", title = "Offense Speed Model Feature Importance") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        legend.position = "bottom") +
+  guides(fill = guide_legend(title = ""))
 
 
 

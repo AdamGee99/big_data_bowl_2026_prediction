@@ -680,7 +680,11 @@ multi_player_movement_pred_frame = function(group_id, group_id_preds, frame) {
     guides(colour = "none", shape = "none") +
     labs(title = paste0("Game: ", game_id, ", Play: ", play_id)) +
     annotate("text", label = paste0("Frame ", frame, " of ", max_frame), 
-             x = -Inf, y = Inf, hjust = -0.3, vjust = 3, size = 5)
+             x = -Inf, y = Inf, hjust = -0.3, vjust = 3, size = 6.5) +
+    theme(legend.position="bottom",
+          axis.title = element_text(size = 15),
+          plot.title = element_text(size = 18),
+          legend.text = element_text(size = 10))
 }
 
 
