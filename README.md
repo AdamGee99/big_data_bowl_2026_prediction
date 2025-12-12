@@ -1,22 +1,22 @@
 # NFL Big Data Bowl 2026 - Prediction
 
 ## Overview
-
-- Goal is to predict player movement after the ball is thrown using NFL player tracking data. Full information can be found on [kaggle](https://www.kaggle.com/competitions/nfl-big-data-bowl-2026-prediction/overview).
-- Repo contains full data pipeline that cleans player tracking data, derives important features, and trains and generates predictions from six CatBoost models in parallel in 5-fold CV.
+- Goal: predict player movement after the ball is thrown using NFL player tracking data. Full info on [kaggle](https://www.kaggle.com/competitions/nfl-big-data-bowl-2026-prediction/overview).
+- Six [CatBoost](https://catboost.ai/) models that predict player's future position using kinematics and derived features.
+- Built on over 5 million frames across 14,108 NFL plays. 
+- CV movement error ~ 0.77 yards (under 2.5 times the length of a football).
+- Repo contains full pipeline that cleans player tracking data, derives important features, and trains/generates predictions in 5-fold CV in parallel.
 
 ## Data
-
-- Over 5 million frames across 14,108 plays in the 2023-2024 NFL season. 
+- NFL player tracking [data](https://www.kaggle.com/competitions/nfl-big-data-bowl-2026-prediction/data) with over 5 million frames across the 2023-2024 season.
 - On each play, the players to predict were the targeted receiver and any defensive player within 5 yards of the target receiver at throw, or is able to reach the ball landing location.
+- Data cleaned to remove impossible speeds and accelerations or plays that were left recording too long. 
 
 ## Modelling Approach
-
-- Six total models that predict the proceeding frame's direction difference, speed, and acceleration for offensive and defensive players separately.
-- Contrasts most other approaches which predicted the future x,y positions. I figured updating the position based on direction, speed, and acceleration is universal across the entire field whereas predicting x,y might depend on the current field position. 
-- Used [CatBoost](https://catboost.ai/) since it provides quick accurate predictions with little tuning (biggest advantage since the data is so large).
-- Speed model predicted future log(speed) and back-transformed to the original scale, since speeds are strictly positive. 
-- Data cleaned to remove impossible speeds and accelerations or plays that were left recording too long. 
+- Predict future frame's direction, speed, acceleration.
+- Contrasts most other approaches which predicted the future x,y positions. I figured updating the position based on kinematics is universal across the entire field whereas predicting x,y might depend on the current field position. 
+- Used [CatBoost](https://catboost.ai/) since it provides quick accurate predictions with little tuning (biggest advantage since data is so large).
+- Speed model predicted future log(speed) and back-transformed (since speeds are strictly positive). 
 - Models trained on all the frames where the ball was in the air, or frames before the ball is thrown but the play is 62.5% overall complete. Initial 62.5% of frames in the play were not used to train the models. This cutoff was tuned through CV.
 
 
