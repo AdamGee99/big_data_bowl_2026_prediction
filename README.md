@@ -5,7 +5,7 @@
 - Six [CatBoost](https://catboost.ai/) models that predict player's future position using kinematics and derived features.
 - Built on over 5 million frames across 14,108 NFL plays. 
 - CV movement error ~ 0.77 yards (under 2.5 times the length of a football).
-- Repo contains full pipeline that cleans player tracking data, derives important features, and trains/generates predictions in 5-fold CV in parallel.
+- Repo contains full pipeline that cleans player tracking data, performs EDA, derives important features, and trains/generates predictions in 5-fold CV in parallel.
 
 ## Data
 - NFL player tracking [data](https://www.kaggle.com/competitions/nfl-big-data-bowl-2026-prediction/data) with over 5 million frames across the 2023-2024 season.
@@ -59,6 +59,5 @@ Each model used a different combination of these features (eg, speed model used 
 ## Future Improvements
 - Implement a deep learning approach with CNNs.
 - Ensemble with other models (XGBoost, Light GBM, CNNs, ...).
-- Embedding players would allow model to learn more player-specific info.
   
 
