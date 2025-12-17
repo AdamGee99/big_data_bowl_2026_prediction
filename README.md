@@ -50,14 +50,15 @@ Each model used a different combination of these features (eg, speed model used 
 </p>
 
 ## Key Lessons
-- Defense harder to predict than offense. Offense almost always go straight ball landing point but defense may be guarding other players.
-- Predominantly important features were kinematics, especially in speed, acceleration models. Then ball landing point features, then various time features. Surprisingly, the player-player features did not seem to help much.
+- Defense harder to predict than offense. Offense almost always goes straight to the ball but defense may be guarding other players.
+- Predominantly important features were kinematics, especially in speed, acceleration models. Then ball features, then various time features. Surprisingly, player-player features did not seem to help much.
 - Parallelizing CV over fold and plays was crucial for efficient training and tuning.
-- Creating basic helper functions like calculating direction differences made my life so much easier.
+- Creating basic helper functions like calculating direction differences made life so much easier.
 - Probably spent too much time on feature engineering, should have prioritized model architecture a bit more.
 
 ## Future Improvements
 - Implement a deep learning approach with CNNs.
 - Ensemble with other models (XGBoost, Light GBM, CNNs, ...).
+- Data augmentation, like rotating plays around an axis, can help increase training set size.
   
 
